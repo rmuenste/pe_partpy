@@ -13,6 +13,10 @@ from mesh import *
 
 from shutil import copyfile
 
+scriptDesc='''This script can convert .tri files to .vtk files for ParaView visualization
+Examples: \n  python3 ./tri2vtk_converter.py ./meshDir/file.prj -proj ./meshDir
+  python3 ./tri2vtk_converter.py _mesh -dir'''
+
 def parse_par_file(file_path, base_name):
     # Initialize variables
     numIDs = None
@@ -27,11 +31,12 @@ def parse_par_file(file_path, base_name):
         bndryType = first_line[1]
 
         # Discard the second line
-        file.readline()
+        secondLine = file.readline()
 
         # Read numIDs lines and parse integers into idxList
         for _ in range(numIDs):
-            idx = int(file.readline().strip())
+            nextLine = file.readline().strip()
+            idx = int(nextLine)
             idxList.append(idx-1)
 
     # Return the parsed data as a dictionary
@@ -76,6 +81,53 @@ def process_directory(directory_name):
 
 #    return prj_files, tri_file, par_files
     return tri_file, parInfo 
+
+
+def process_dev_directory(directory_name):
+    prj_files = []  # List to store .prj files
+    tri_file = None  # Variable to store .tri file
+    par_files = []  # List to store .par files
+
+    # Check if the directory exists
+    if not os.path.exists(directory_name):
+        raise FileNotFoundError(f"Directory '{directory_name}' not found.")
+
+    print(os.listdir(directory_name))
+    # Iterate over files in the directory
+    for filename in os.listdir(directory_name):
+        if filename.endswith('.prj'):  # Check if the file has a .prj extension
+            prj_files.append(filename)
+        elif filename.endswith('.tri'):  # Check if the file has a .tri extension
+            tri_file = filename
+        elif filename.endswith('.par'):  # Check if the file has a .par extension
+            par_files.append(filename)
+
+    # Check if a .tri file is found
+    if tri_file is None:
+        raise ValueError("No .tri file found in directory.")
+
+    parInfo = []
+    for parFile in par_files:
+        pathToFile = os.path.join(directory_name, parFile)
+        info = parse_par_file(pathToFile, parFile)
+        parInfo.append(info)
+
+#    return prj_files, tri_file, par_files
+    return tri_file, parInfo 
+
+def handleDevDir(dirName):
+    """
+    Converts files from a devisor directory to vtk
+    Parameters:
+        dirName: the path to the devisor directory
+    """
+
+    triName, parInfo = process_dev_directory(dirName)
+
+    vtkName = os.path.join(dirName, "main.vtu")
+    triNameFull = os.path.join(dirName, triName)
+    
+    convertTri2VtkXml(triNameFull, vtkName, parInfo)
 
 def handleProjDir(dirName):
     """
@@ -137,6 +189,7 @@ def handleDevisorDir(dirName):
         dirName: the path to the devisor directory
     """
     fullName = os.path.join(dirName, "NEWFAC")
+
     nameList = os.listdir(fullName)
     pvdList = []
     print(nameList)
@@ -150,7 +203,9 @@ def handleDevisorDir(dirName):
             print("Writing %s \n" %vtkName)
             convertTri2Vtk(fileName, vtkName)
         elif os.path.isdir(fileName):
-            print("Found directory %s \n" %fileName)
+            print("Found subdirectory: '%s' \n" %fileName)
+
+            triName, parInfo = process_dev_directory(fileName)
 #            subDir = os.path.join(fileName, item)
             subList = os.listdir(fileName)
             for subItem in subList:
@@ -163,7 +218,7 @@ def handleDevisorDir(dirName):
                     vtkName = os.path.join(fileName, baseName + ".vtu")
                     pvdList.append(vtkName)
                     print("Writing %s \n" %vtkName)
-                    convertTri2VtkXml(os.path.join(fileName, subItem), vtkName)
+                    convertTri2VtkXml(os.path.join(fileName, subItem), vtkName, parInfo)
     print(pvdList)
     with open("pvdfile.pvd", "w") as f:
         f.write("<?xml version=\"1.0\"?>\n")
@@ -179,11 +234,11 @@ def handleDevisorDir(dirName):
 def main():
     print(sys.argv)
 
-    parser = argparse.ArgumentParser(description="This script can convert .tri files to .vtk files for ParaView visualization")
+    parser = argparse.ArgumentParser(description=scriptDesc, formatter_class=argparse.RawDescriptionHelpFormatter)
     
-    parser.add_argument('firstFile', help='Path to the first file or directory')
+    parser.add_argument('firstFile', help='Path to the first file or directory (i.e. ./meshDir/file.prj or _mesh)')
     parser.add_argument('secondFile', nargs='?', default='', help='Path to the second file (optional)')
-    parser.add_argument('-dir', action='store_true', help='Flag indicating the first argument is a directory')
+    parser.add_argument('-dir', action='store_true', help='Flag indicating the first argument is a directory (use it to process a devisor directory)')
     parser.add_argument('-proj', type=str, help='Here we can indicate that we want to process a project directory')
 
     args = parser.parse_args()
