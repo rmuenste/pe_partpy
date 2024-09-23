@@ -3,10 +3,11 @@
 
 import os
 import sys
-from shutil import copy
+from shutil import copy, rmtree
 from .part import *
+from pathlib import Path
 
-# Dokumentation
+# Documentation
 __doc__ = \
 """
 Partition a grid for multiprocessing.
@@ -16,216 +17,218 @@ Example: ./PyPartitioner.py 12 1 1 NEWFAC _adc/2D_FAC/2Dbench.prj
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-# Hilfsroutine
+# Helper routine
 def mkdir(dir):
     """
-    Erzeugt nur dann das Verzeichnis "dir", wenn es noch nicht vorhanden ist.
-    Falls eine Datei dieses Namens existieren sollte, wird sie durch das Verzeichnis ersetzt.
+    Creates the directory "dir" only if it doesn't already exist.
+    If a file with the same name exists, it will be replaced by the directory.
     """
-    if os.path.exists(dir):
-        if os.path.isdir(dir):
+    if Path(dir).exists():
+        if Path(dir).is_dir():
             return
         else:
-            os.remove(dir)
-    os.mkdir(dir)
+            rmtree(Path(dir))
+    Path(dir).mkdir(parents=True, exist_ok=True)
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 def checkParameters(params):
     """
-    Diese Funktion ueberprueft die Eingabeparameter auf Gueltigkeit
+    This function checks the validity of the input parameters.
     """
-    # Format-Check der Parameter
-    if not(len(params)==6 and params[1].isdigit() and params[3].isdigit()):
+    # Format check of the parameters
+    if not (len(params) == 6 and params[1].isdigit() and params[3].isdigit()):
         axisParams = params[3].split("-")
         print(axisParams[0][1:])
-        if not(axisParams[0][0] in ("x", "y", "z")):
-          sys.exit(__doc__)
+        if not (axisParams[0][0] in ("x", "y", "z")):
+            sys.exit(__doc__)
     if not os.path.exists(params[5]):
-        sys.exit("Projekt file '%s' does not exist!" % params[5])
+        sys.exit("Project file '%s' does not exist!" % params[5])
 
-    # Sanity-Check der Parameter
-    NPart=int(params[1])
-    PartMethod=int(params[2])
+    # Sanity check of the parameters
+    NPart = int(params[1])
+    PartMethod = int(params[2])
 
     if params[3].isdigit():
-      NSubPart=int(params[3])
+        NSubPart = int(params[3])
     else:
-      axisParams = params[3].split("-")
-      NSubPart=[int(axisParams[0][1:]),int(axisParams[1][1:]),int(axisParams[2][1:])]
+        axisParams = params[3].split("-")
+        NSubPart = [int(axisParams[0][1:]), int(axisParams[1][1:]), int(axisParams[2][1:])]
 
-    if NPart <1:
-        sys.exit("Number of Partitions has to be >=1 !")
+    if NPart < 1:
+        sys.exit("Number of partitions must be >= 1!")
 
     if PartMethod != -4:
-      if NSubPart<1:
-          sys.exit("There has to be at least one subgrid!")
+        if NSubPart < 1:
+            sys.exit("There must be at least one subgrid!")
     elif PartMethod == -4:
         totalParts = 1
         for x in NSubPart:
-                totalParts =totalParts * x        
+            totalParts = totalParts * x
 
         if totalParts != NPart:
-          sys.exit("The given number of partitions is not equal to the product of the desired subdivisions {} != {} * {} * {}".format(NPart, NSubPart[0], NSubPart[1], NSubPart[2]))
+            sys.exit("The given number of partitions does not match the product of the subdivisions {} != {} * {} * {}".format(NPart, NSubPart[0], NSubPart[1], NSubPart[2]))
 
-    if not (PartMethod in (1,2,3,11,12,13) or str(-PartMethod).strip("1234") == ""):
-        sys.exit("Only integer numbers 1,2,3 (+10) or negative numbers containing " +
-                 "the digits 1,2,3,4 are valid partitioning methods!")
+    if not (PartMethod in (1, 2, 3, 11, 12, 13) or str(-PartMethod).strip("1234") == ""):
+        sys.exit("Only integer numbers 1, 2, 3 (+10) or negative numbers containing " +
+                 "the digits 1, 2, 3, 4 are valid partitioning methods!")
 
     if PartMethod != -4:
-      if PartMethod<0 and NSubPart==1:
-          sys.exit("Partitionig Method %d requires more than 1 subgrid!"%PartMethod)
+        if PartMethod < 0 and NSubPart == 1:
+            sys.exit("Partitioning method %d requires more than 1 subgrid!" % PartMethod)
 
-    MeshName=params[4]
-    ProjektFile=params[5]
+    MeshName = params[4]
+    ProjektFile = params[5]
 
-    print("Partitioner Version: 0.5\nNumber of partitions: {} \nPartitioning method: {} \nNumber of submeshes: {}".format(NPart, PartMethod, NSubPart))
-    # Rueckgabe der Parameter
+    print(f"Partitioner Version: 0.5\nNumber of partitions: {NPart} \nPartitioning method: {PartMethod} \nNumber of submeshes: {NSubPart}")
+    # Return the parameters
     return NPart, PartMethod, NSubPart, MeshName, ProjektFile
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-# Hauptroutine
-def MainProcess(nnPart,pMethod,nSubMesh,MeshName,ProjektFile, allArgs):
-    # Lese Projektdatei und extrahiere Gitter und Parameterdateinamen
-    (nParFiles,myGridFile,myParFiles,myParNames)=GetFileList(ProjektFile)
+# Main routine
+def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
+    # Read the project file and extract the grid and parameter file names
+    (nParFiles, myGridFile, myParFiles, myParNames) = GetFileList(ProjektFile)
 
     origMethod = pMethod
-    # Erzeuge übergeordnetes Verzeichnis, in dem gearbeitet werden soll
-    workPath=os.path.join("_mesh",MeshName)
+    # Create the main directory for work
+    workPath = Path("_mesh") / MeshName 
     mkdir(workPath)
 
-    # Kopiere alle benötigten Dateien in dieses Verzeichnis
-    copy(myGridFile,os.path.join(workPath,"GRID.tri"))
-    copy(ProjektFile,os.path.join(workPath,"GRID.prj"))
+    # Copy all necessary files to this directory
+    copy(myGridFile, workPath / "GRID.tri")
+    copy(ProjektFile, workPath / "GRID.prj")
     for iPar in range(nParFiles):
-        copy(myParFiles[iPar],os.path.join(workPath,myParNames[iPar]+".par"))
+        copy(myParFiles[iPar], workPath / (myParNames[iPar] + ".par"))
 
-    # Erzeuge zusätzliche Unterverzeichnisse falls Untergitter erzeugt werden sollen
-    # TODO: more general 
+    # Create additional subdirectories if subgrids are to be generated
     subMeshes = 0
     if origMethod == -4:
-      subMeshes = nSubMesh[0] * nSubMesh[1] * nSubMesh[2]
+        subMeshes = nSubMesh[0] * nSubMesh[1] * nSubMesh[2]
     else:
-      subMeshes = nSubMesh
+        subMeshes = nSubMesh
 
-    for i in range(1,subMeshes+1):
+    for i in range(1, subMeshes + 1):
         subdirId = getFormattedValue(allArgs.format, i)
         subdirString = "sub" + subdirId
-        mkdir(os.path.join(workPath, subdirString))
+        mkdir( workPath / subdirString)
 
-    # Bestimme, ob die Untergitter in umgekehrter Reihenfolge abgespeichert werden sollen.
-    if pMethod in (11,12,13):
-        bReversed=True
-        pMethod-=10
+    # Determine if subgrids should be stored in reverse order
+    if pMethod in (11, 12, 13):
+        bReversed = True
+        pMethod -= 10
     else:
-        bReversed=False
+        bReversed = False
 
-    # Speziller Marker für atomares Splitting, der nötig wird, wenn nSubMesh>1 ist
-    # und nnPart == #Gitterzellen des Hauptgitters
-    bAtomicSplitting=False
-    # Falls mit Untergittern gearbeitet werden soll, so spalte das Hauptgitter auf,
-    # ansonsten nehme das Hauptgitter als Untergitter Nr.1
+    # Special marker for atomic splitting, needed if nSubMesh > 1 and nnPart equals the number of grid cells in the main grid
+    bAtomicSplitting = False
+
+    # If subgrids are to be generated, split the main grid; otherwise, use the main grid as subgrid 1
     if origMethod == -4 or nSubMesh > 1:
-        # Lese Gitter ein
-        myGrid=GetGrid(os.path.join(workPath,"GRID.tri"))
-        # (Anzahl der Gitterzellen == nnPart) => aktiviere atomares Splitting
-        if myGrid[0]==nnPart:
-            bAtomicSplitting=True
-        # Erzeuge Nachbarschaftsinformationen für das Gitter
-        myNeigh=GetNeigh(myGrid)
-        # Lese Parametrisierungen und Ränder ein
-        myParTypes=[]
-        myParameters=[]
-        myBoundaries=[]
+        # Read the grid
+        myGrid = GetGrid(workPath /"GRID.tri")
+        # (Number of grid cells == nnPart) => activate atomic splitting
+        if myGrid[0] == nnPart:
+            bAtomicSplitting = True
+        # Create neighborhood information for the grid
+        myNeigh = GetNeigh(myGrid)
+        # Read parameterizations and boundaries
+        myParTypes = []
+        myParameters = []
+        myBoundaries = []
 
         for iPar in range(nParFiles):
-            ParName=os.path.join(workPath,myParNames[iPar]+".par")
-            (ParType,Parameter,Boundary)=GetPar(ParName,myGrid[1])
+            ParName = workPath / myParNames[iPar] + ".par"
+            (ParType, Parameter, Boundary) = GetPar(ParName, myGrid[1])
             myParTypes.append(ParType)
             myParameters.append(Parameter)
             myBoundaries.append(Boundary)
 
-        # Aufspaltung in Untergitter
-        if pMethod in (1,2,3):
-            myPart=GetParts(myNeigh,nSubMesh,pMethod)
+        # Subdivision into subgrids
+        if pMethod in (1, 2, 3):
+            myPart = GetParts(myNeigh, nSubMesh, pMethod)
         else:
             try:
-                myPart=PartitionAlongAxis(myGrid,nSubMesh,pMethod)
+                myPart = PartitionAlongAxis(myGrid, nSubMesh, pMethod)
             except AssertionError as ErrorInst:
-                sys.exit("Error at creating subgrids along axis: %s"%ErrorInst)
-            pMethod=1
+                sys.exit("Error creating subgrids along the axis: %s" % ErrorInst)
+            pMethod = 1
 
-        # Schreibe die Gitter und Parametrisierungen der einzelnen Rechengebiete
-        myParam=(myParNames,myParTypes,myParameters,myBoundaries)
+        # Write the grids and parameterizations for each computation domain
+        myParam = (myParNames, myParTypes, myParameters, myBoundaries)
         try:
-            GetSubs(workPath,myGrid,nSubMesh,myPart,myNeigh,nParFiles,myParam,False, nSubMesh, allArgs)
+            GetSubs(workPath, myGrid, nSubMesh, myPart, myNeigh, nParFiles, myParam, False, nSubMesh, allArgs)
         except ValueError as e:
             print(f"Error: {e}")
 
-    elif nSubMesh==1:
-        copy(myGridFile,os.path.join(workPath,"sub001","GRID.tri"))
-        copy(ProjektFile,os.path.join(workPath,"sub001","GRID.prj"))
+    elif nSubMesh == 1:
+
+        subdirId = getFormattedValue(allArgs.format, 1)
+        copy(myGridFile, workPath / f"sub{subdirId}" / "GRID.tri")
+        copy(ProjektFile, workPath / f"sub{subdirId}" / "GRID.prj")
         for iPar in range(nParFiles):
-            copy(myParFiles[iPar],os.path.join(workPath,"sub001",myParNames[iPar]+".par"))
+            copy(myParFiles[iPar], workPath / f"sub{subdirId}" / (myParNames[iPar] + ".par"))
 
-    # Im Grunde "kSubPart=int(math.ceil(nnPart/float(nSubMesh)))"
+    # Essentially "kSubPart=int(math.ceil(nnPart/float(nSubMesh)))"
     if isinstance(nSubMesh, int):
-      kSubPart= nnPart//nSubMesh if nnPart%nSubMesh==0 else nnPart//nSubMesh+1
+        kSubPart = nnPart // nSubMesh if nnPart % nSubMesh == 0 else nnPart // nSubMesh + 1
     else:
-      kSubPart = 1
+        kSubPart = 1
 
-    iPart=0
+    iPart = 0
     if isinstance(nSubMesh, int):
-      rIter = range(nSubMesh,0,-1) if bReversed else range(1,nSubMesh+1)
+        rIter = range(nSubMesh, 0, -1) if bReversed else range(1, nSubMesh + 1)
     else:
-      rIter = range(0)
+        rIter = range(0)
 
     for i in rIter:
-        subPath=os.path.join(workPath,"sub%04d"%i)
-        myGrid=GetGrid(os.path.join(subPath,"GRID.tri"))
-        myNeigh=GetNeigh(myGrid)
-        myParTypes=[]
-        myParameters=[]
-        myBoundaries=[]
+        subdirId = getFormattedValue(allArgs.format, i)
+        subPath = workPath / f"sub{subdirId}"
+        myGrid = GetGrid(subPath / "GRID.tri")
+        myNeigh = GetNeigh(myGrid)
+        myParTypes = []
+        myParameters = []
+        myBoundaries = []
 
         for iPar in range(nParFiles):
-            ParName = os.path.join(subPath,myParNames[iPar] + ".par")
-            (ParType, Parameter, Boundary)=GetPar(ParName, myGrid[1])
+            ParName = subPath / (myParNames[iPar] + ".par")
+            (ParType, Parameter, Boundary) = GetPar(ParName, myGrid[1])
             myParTypes.append(ParType)
             myParameters.append(Parameter)
             myBoundaries.append(Boundary)
 
-        nPart = min(iPart+kSubPart, nnPart) - iPart
-        # Partitionierung mittel verschiedener Methoden (WIP)
-        if pMethod in (1,2,3):
+        nPart = min(iPart + kSubPart, nnPart) - iPart
+        # Partitioning using different methods (WIP)
+        if pMethod in (1, 2, 3):
             if bAtomicSplitting:
-                myPart=GetAtomicSplitting(len(myNeigh))
-                nPart=max(myPart)
+                myPart = GetAtomicSplitting(len(myNeigh))
+                nPart = max(myPart)
             else:
-                myPart=GetParts(myNeigh,nPart,pMethod)
+                myPart = GetParts(myNeigh, nPart, pMethod)
         else:
-            sys.exit("Partitioning method %d is not available for subgrids!"%pMethod)
-        # Schreibe die Gitter und Parametrisierungen der einzelnen Rechengebiete
-        myParam=(myParNames,myParTypes,myParameters,myBoundaries)
+            sys.exit("Partitioning method %d is not available for subgrids!" % pMethod)
+        # Write the grids and parameterizations for each computation domain
+        myParam = (myParNames, myParTypes, myParameters, myBoundaries)
 
         if origMethod == -4:
-          GetSubs(subPath,myGrid,nPart,myPart,myNeigh,nParFiles,myParam,True, 0, allArgs)
+            GetSubs(subPath, myGrid, nPart, myPart, myNeigh, nParFiles, myParam, True, 0, allArgs)
         else:
-          GetSubs(subPath,myGrid,nPart,myPart,myNeigh,nParFiles,myParam,True, nSubMesh, allArgs)
+            GetSubs(subPath, myGrid, nPart, myPart, myNeigh, nParFiles, myParam, True, nSubMesh, allArgs)
 
-        iPart+=nPart
-        if iPart==nnPart:
+        iPart += nPart
+        if iPart == nnPart:
             break
         pass
 
     print("The partitioning was successful!")
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
 def partition(NPart, PartMethod, NSubPart, MeshName, ProjektFile):
 
-    # Erzeuge benötigte Verzeichnisse, falls noch nicht vorhanden
+    # Create necessary directories if they don't already exist
     mkdir("_mesh")
 
-    # Aufruf der Hauptroutine
-    MainProcess(NPart,PartMethod,NSubPart,MeshName,ProjektFile)
+    # Call the main routine
+    MainProcess(NPart, PartMethod, NSubPart, MeshName, ProjektFile)

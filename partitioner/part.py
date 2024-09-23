@@ -1,15 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# Alles was man zum Laden von Metis benötigt
+# Everything needed to load Metis
 from ctypes import CDLL, c_int, POINTER, byref
 
-#from future.standard_library import install_aliases
-#install_aliases()
-
 from functools import reduce
-
-from six.moves import zip
 
 from itertools import repeat, count
 
@@ -20,326 +14,322 @@ import os
 import sys
 from shutil import copy
 
-metis=None
-metis_func=[]
+metis = None
+metis_func = []
 
 def getFormattedValue(userFormat, val):
-  # Mapping of user input to format strings
-  formatMapping = {
-    "v1": "%03d",
-    "v2": "%04d",
-    # Add more mappings as needed
-  }
+    # Mapping of user input to format strings
+    formatMapping = {
+        "v1": "%03d",
+        "v2": "%04d",
+        # Add more mappings as needed
+    }
 
-  formatString = formatMapping.get(userFormat, "%03d")
-  formatedValue = formatString % val
-  return formatedValue
+    formatString = formatMapping.get(userFormat, "%03d")
+    formattedValue = formatString % val
+    return formattedValue
 
-#Kleine private Hilfsroutinen
-def _readAfterKeyword(fh,keyword):
-  s=fh.readline()
-  while keyword not in s:
-    s=fh.readline()
+# Small private helper routines
+def _readAfterKeyword(fh, keyword):
+    for line in fh:
+        if keyword in line:
+            return
+    raise ValueError(f"Keyword '{keyword}' not found in file.")
 
 def _try_in_place_first(name):
-  tmp=os.path.join(os.curdir,name)
+    tmp = os.path.join(os.curdir, name)
 
-  if not os.path.exists(tmp):
-    tmp=os.path.join(os.curdir, "../lib64", name)
+    if not os.path.exists(tmp):
+        tmp = os.path.join(os.curdir, "../lib64", name)
 
-  if not os.path.exists(tmp):
-    tmp=name
+    if not os.path.exists(tmp):
+        tmp = name
 
-  try:
-    return CDLL(tmp)
-  except OSError:
-    print("An error of type OSError occurred while trying to find the metis library:")
-    print(f"The metis library {name} was neither found in the current folder {os.curdir} nor in the system library path.")
-  except:
-    print("An error occurred loading the metis library:")
-    print("The metis library was neither found in the current folder nor in the system library path.")
+    try:
+        return CDLL(tmp)
+    except OSError:
+        print("An error of type OSError occurred while trying to find the Metis library:")
+        print(f"The Metis library {name} was neither found in the current folder {os.curdir} nor in the system library path.")
+    except Exception as e:
+        print(f"An error occurred loading the Metis library: '{e}'")
+        print("The Metis library was neither found in the current folder nor in the system library path.")
 
-# Ab hier kommen die öffentlichen Funktionen des Moduls
+# From here on, the public functions of the module
 
 def GetFileList(cProjName):
-  """
-  Auslesen der Projektdatei. Laden des Gitternamens und der Namen der Parametrisierungsdateien.
-  """
-  nPar=0
-  myGridFile=""
-  myParFiles=[]
-  myParNames=[]
-  ProjektDir=os.path.dirname(cProjName)
-  fProjekt=open(cProjName,'r')
-  for s in fProjekt:
-    s=s.strip()
-    if '.' in s:
-      (prefix,sep,ext)=s.rpartition('.')
-      if ext=="tri":
-        myGridFile=os.path.join(ProjektDir,s)
-      elif ext=="par":
-        nPar+=1
-        myParFiles.append(os.path.join(ProjektDir,s))
-        myParNames.append(prefix)
-  fProjekt.close()
-  print("The projekt folder consists of the following files:")
-  print("- Grid File:", myGridFile)
-  print("- Boundary Files:")
-  print("\n".join(map(lambda x: "  * %s" % x,myParFiles)))
-  return (nPar,myGridFile,myParFiles,myParNames)
+    """
+    Read the project file. Load the grid name and the names of the parameter files.
+    """
+    nPar = 0
+    myGridFile = ""
+    myParFiles = []
+    myParNames = []
+    ProjektDir = os.path.dirname(cProjName)
+    
+    with open(cProjName, 'r') as fProjekt:
+        for s in fProjekt:
+            s = s.strip()
+            if '.' in s:
+                (prefix, sep, ext) = s.rpartition('.')
+                if ext == "tri":
+                    myGridFile = os.path.join(ProjektDir, s)
+                elif ext == "par":
+                    nPar += 1
+                    myParFiles.append(os.path.join(ProjektDir, s))
+                    myParNames.append(prefix)
+
+    print("The project folder consists of the following files:")
+    print(f"- Grid File: {myGridFile}")
+    print("- Boundary Files:")
+    print("\n".join(map(lambda x: "  * %s" % x, myParFiles)))
+    return (nPar, myGridFile, myParFiles, myParNames)
 
 def GetGrid(GridFileName):
     """
-    Liest ein Gitter aus der Datei "GridFileName".
-    Der Rückgabewert hat die Struktur: (NEL,NVT,Coord,KVert,Knpr)
+    Reads a grid from the file "GridFileName".
+    The return value has the structure: (NEL, NVT, Coord, KVert, Knpr)
     """
     print("Grid input file: '%s'" % GridFileName)
-    f=open(GridFileName,'r')
-    f.readline()
-    f.readline()
-    # Lese Anzahl der Zellen und Knoten
-    g=f.readline().split()
-    NEL=int(g[0])
-    NVT=int(g[1])
-    # Lese die Koordinaten
-    _readAfterKeyword(f,"DCORVG")
-    Coord=[]
-    for i in range(NVT):
-        g=f.readline().split()
-        Coord.append(tuple(map(float,g)))
-    # Lese die Zelldaten
-    _readAfterKeyword(f,"KVERT")
-    Kvert=[]
-    for i in range(NEL):
-        g=f.readline().split()
-        Kvert.append(tuple(map(int,g)))
-    # Lese die Randdaten
-    _readAfterKeyword(f,"KNPR")
-    g=f.read().split()
-    Knpr=tuple(map(int,g))
-    # Fertig
-    #f.close()
-    return (NEL,NVT,tuple(Coord),tuple(Kvert),Knpr)
+    
+    with open(GridFileName, 'r') as f:
+        f.readline()
+        f.readline()
+        # Read the number of cells and nodes
+        g = f.readline().split()
+        NEL = int(g[0])
+        NVT = int(g[1])
 
-def GetPar(ParFileName,NVT):
+        # Read the coordinates
+        _readAfterKeyword(f, "DCORVG")
+        Coord = [tuple(map(float, f.readline().split())) for _ in range(NVT)]
+
+        # Read the cell data
+        _readAfterKeyword(f, "KVERT")
+        Kvert = [tuple(map(int, f.readline().split())) for _ in range(NEL)]
+
+        # Read the boundary data
+        _readAfterKeyword(f, "KNPR")
+        g = f.read().split()
+        Knpr = tuple(map(int, g))
+
+    return (NEL, NVT, tuple(Coord), tuple(Kvert), Knpr)
+
+def GetPar(ParFileName, NVT):
     """
-    Lese Randbeschreibungen aus einer Parameterdatei. Maximale Knotenzahl NVT
-    bestimmt zudem die Länge der Randliste.
-    Rückgabe: (Name des Randes, Daten des Randes, Boolsche Liste für alle Knoten)
+    Reads boundary descriptions from a parameter file. Maximum number of nodes NVT
+    also determines the length of the boundary list.
+    Return: (Name of the boundary, data of the boundary, boolean list for all nodes)
     """
-    print("Parameter input file: '%s'" % ParFileName)
-    with open(ParFileName,'r') as f:
-        g=f.readline().split()
-        pPar=int(g[0])
-        Type=g[1]
-        Parameter=f.readline().strip()
-        #if len(Parameter)>=2:
-        #  Parameter=Parameter[1:-1]
+    print(f"Parameter input file: '{ParFileName}'")
+    
+    with open(ParFileName, 'r') as f:
+        g = f.readline().split()
+        pPar = int(g[0])
+        Type = g[1]
+        Parameter = f.readline().strip()
         if not Parameter:
-            Parameter="0"
-        Boundary=set(map(int,f.read().split()))
-    return (Type,Parameter,Boundary)
+            Parameter = "0"
+        Boundary = set(map(int, f.read().split()))
+        
+    return (Type, Parameter, Boundary)
 
 def GetNeigh(Grid):
-  """
-  Bestimme für jedes Element eines Gitters eine Liste mit Nachbarelementen.
-  """
-  face=((0,1,2,3),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7),(4,5,6,7))
-  (NEL,NVT,KVert)=Grid[:2]+Grid[3:4]
-  # Erzeuge für jeden Knoten eine Liste mit Elementen,
-  # welche diesen Knoten enthalten.
-  AuxStruct=[set() for i in range(NVT)]
-  for (Elem_Num,Elem) in enumerate(KVert,1):
-    for Vert in Elem:
-      AuxStruct[Vert-1].add(Elem_Num)
-  # Baue Liste mit Nachbarschaften auf
-  Neigh=[]
-  for (Elem_Num,Elem) in enumerate(KVert,1):
-    n=[0,]*6
-    for j in range(6):
-      # Die folgenden vier Zeilen ersetzen "NeighFinder"
-      s=reduce(set.intersection,[AuxStruct[Elem[i]-1] for i in face[j]])
-      s.discard(Elem_Num)
-      if s:
-        n[j]=s.pop()
-    Neigh.append(tuple(n))     
-  return tuple(Neigh)
+    """
+    Determine a list of neighboring elements for each element of a grid.
+    """
+    face = ((0, 1, 2, 3), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7), (4, 5, 6, 7))
+    (NEL, NVT, KVert) = Grid[:2] + Grid[3:4]
+    # Create a list for each node, containing elements that include that node
+    AuxStruct = [set() for i in range(NVT)]
+    
+    for (Elem_Num, Elem) in enumerate(KVert, 1):
+        for Vert in Elem:
+            AuxStruct[Vert - 1].add(Elem_Num)
+    
+    # Build neighborhood list
+    Neigh = []
+    for (Elem_Num, Elem) in enumerate(KVert, 1):
+        n = [0] * 6
+        for j in range(6):
+            # The following lines replace "NeighFinder"
+            s = reduce(set.intersection, [AuxStruct[Elem[i] - 1] for i in face[j]])
+            s.discard(Elem_Num)
+            if s:
+                n[j] = s.pop()
+        Neigh.append(tuple(n))     
+    return tuple(Neigh)
 
 def _print_c_array(A):
-  print("("+", ".join(map(str,A))+")")
+    print("(" + ", ".join(map(str, A)) + ")")
 
 def GetAtomicSplitting(Num):
-  return tuple(range(1,Num+1))
+    return tuple(range(1, Num + 1))
 
-def GetParts(Neigh,nPart,Method):
-  # Falls nPart==1 ist, erzeuge direkt eine Dummy-Partitionierung
-  if nPart==1:
-    return (1,)*len(Neigh)
-  # Falls die Anzahl der gesuchten Unterteilungen größer oder gleich der Anzahl der Zellen ist,
-  # führen eine atomare Aufteilung des Gitters in einzelne Zellen durch.
-  # Dies behebt ein merkwürdiges Verhalten von Metis, dass in diesem Fall Unterteilungen
-  # mit 0 Elementen und mehr als einem Element erzeugt.
-  if len(Neigh)<=nPart:
-    return GetAtomicSplitting(len(Neigh))
-  # Ein paar Einstellungsparameter
-  cOpts=(c_int * 5)(0,100,4,1,1)
-  cNum=c_int(1) # Nummerierung beginnt mit 1
-  cWeight=c_int(0) # Keine Gewichte
+def GetParts(Neigh, nPart, Method):
+    # If nPart == 1, create a dummy partitioning directly
+    if nPart == 1:
+        return (1,) * len(Neigh)
+    
+    # If the number of subdivisions is greater or equal to the number of cells,
+    # perform atomic splitting of the grid into individual cells.
+    if len(Neigh) <= nPart:
+        return GetAtomicSplitting(len(Neigh))
+    
+    # Some configuration parameters
+    cOpts = (c_int * 5)(0, 100, 4, 1, 1)
+    cNum = c_int(1)  # Numbering starts from 1
+    cWeight = c_int(0)  # No weights
 
-  # Zähle alle nichtnull Elemente der Nachbarschaftsliste
-  iCount=sum(list(map(lambda x: list(map(lambda y: bool(y),x)).count(True),Neigh)))
+    # Count all non-zero elements of the neighborhood list
+    iCount = sum(list(map(lambda x: list(map(lambda y: bool(y), x)).count(True), Neigh)))
 
-  # Alloziere die Listen MetisA, MetisB und Part
-  NEL=len(Neigh)
-  MetisA=(c_int * (NEL+1))()
-  MetisB=(c_int * iCount)()
-  Part=(c_int * NEL)()
-  # Baue die komprimierte Graphenstruktur auf
-  iOffset=1
-  for (Idx,Elem_Neigh) in enumerate(Neigh):
-    MetisA[Idx]=iOffset
-    for iNeigh in Elem_Neigh:
-      if iNeigh:
-        MetisB[iOffset-1]=iNeigh
-        iOffset+=1
-  MetisA[NEL]=iCount+1
-  # Rufe Metis auf
-  null_ptr = POINTER(c_int)()
-  cNEL=c_int(NEL)
-  cnPart=c_int(nPart)
-  EdgeCut=c_int()
-  print("Calling Metis...")
-  metis_func[Method-1](byref(cNEL),MetisA,MetisB,null_ptr,null_ptr,\
-                       byref(cWeight),byref(cNum),byref(cnPart),cOpts,\
-                       byref(EdgeCut),Part)
-  print("%d edges were cut by Metis." % EdgeCut.value)
-  # Fertig
-  return tuple(Part)
+    # Allocate the lists MetisA, MetisB, and Part
+    NEL = len(Neigh)
+    MetisA = (c_int * (NEL + 1))()
+    MetisB = (c_int * iCount)()
+    Part = (c_int * NEL)()
 
-def Flatten3dArray(maxX, maxY, i, j, k):  
-  idx1D = (i - 1) * maxX * maxY + (j - 1) * maxY + k - 1 
-  return idx1D
+    # Build the compressed graph structure
+    iOffset = 1
+    for (Idx, Elem_Neigh) in enumerate(Neigh):
+        MetisA[Idx] = iOffset
+        for iNeigh in Elem_Neigh:
+            if iNeigh:
+                MetisB[iOffset - 1] = iNeigh
+                iOffset += 1
+    MetisA[NEL] = iCount + 1
 
-def GetSubs(BaseName,Grid,nPart,Part,Neigh,nParFiles,Param,bSub, nSubMesh, allArgs):
-  face=((0,1,2,3),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7),(4,5,6,7))
-  
-  if isinstance(nSubMesh, int):
-    subMeshes = nSubMesh
-    GetSubsClassic(BaseName,Grid,nPart,Part,Neigh,nParFiles,Param,bSub, allArgs)
-    return
-  else:
-    subMeshes = nSubMesh[0] * nSubMesh[1] * nSubMesh[2]
-    partX = nSubMesh[0]
-    partY = nSubMesh[1]
-    partZ = nSubMesh[2]
+    # Call Metis
+    null_ptr = POINTER(c_int)()
+    cNEL = c_int(NEL)
+    cnPart = c_int(nPart)
+    EdgeCut = c_int()
+    print("Calling Metis...")
+    metis_func[Method - 1](byref(cNEL), MetisA, MetisB, null_ptr, null_ptr,
+                           byref(cWeight), byref(cNum), byref(cnPart), cOpts,
+                           byref(EdgeCut), Part)
+    print(f"{EdgeCut.value} edges were cut by Metis.")
 
-  # Auspacken der Gitterstruktur in einzelne Variablen
-  (nel,nvt,coord,kvert,knpr)=Grid
-  # Auspacken der Parametrisierungen
-  (ParNames,ParTypes,Parameters,Boundaries)=Param
-  # Add new boundary nodes at partition borders
-  new_knpr=list(knpr)
-#  print(Part)
+    # Done
+    return tuple(Part)
 
-  for (iPart,iNeigh,iElem) in zip(Part,Neigh,kvert):
-    for (Idx,f) in zip(iNeigh,face):
-      if Idx>0 and Part[Idx-1]!=iPart:
-        for k in range(4):
-          new_knpr[iElem[f[k]]-1]=1
+def Flatten3dArray(maxX, maxY, i, j, k):
+    idx1D = (i - 1) * maxX * maxY + (j - 1) * maxY + k - 1
+    return idx1D
 
-  subExists = [False] * subMeshes 
-  print("Partitioning scheme: {}x, {}y, {}z\n".format(nSubMesh, nSubMesh, nSubMesh))
-  # Für alle Rechengebiete
-  # loop from [0, 0, 0] to [n, n, n]
-  subId = 0
-  for iPartX in range(1,partX+1):
-    for iPartY in range(1,partY+1):
-      for iPartZ in range(1,partZ+1):
-        subId = subId + 1
-        # This may actually be iPartZ, iPartY, iPartZ]
-        #iPart = [iPartX, iPartY, iPartZ]
-        iPart = [iPartZ, iPartY, iPartX]
-        # Bestimme, welche Zellen und Knoten in diesem Gebiet liegen 
-        iElem=tuple(eNum for (eNum,p) in enumerate(Part) if p==iPart)
-        if len(iElem) == 0:
-          raise ValueError(f"Trying to create a partition with {len(iElem)} elements which is not allowed. Partition id: {iPart}")
-        iCoor=set(vert-1 for eNum in iElem for vert in kvert[eNum])
-        # Erzeuge Lookup-Listen: Neue-Idx->Alte Idx
-        iCoor=list(iCoor)
-        iCoor.sort()
-        iCoor=tuple(iCoor)
-        # Mappe Knotenkoordinaten und Knoteneigenschaften
-        dCoor=tuple(coord[Idx] for Idx in iCoor)
-        dKnpr=tuple(new_knpr[Idx] for Idx in iCoor)
-        # Erzeuge Lookup-Liste: Alte Knotennummern->Neue Knotennummern
-        LookUp=dict((k+1,v) for (v,k) in enumerate(iCoor,1))
-        # Mappe die Knoten der Elemente
-        dKvert=tuple(tuple(map(lambda x:LookUp[x],kvert[Idx])) for Idx in iElem)
-        # Gitterausgabe
-        localGrid=(len(dKvert),len(dCoor),dCoor,dKvert,dKnpr)
+def GetSubs(BaseName, Grid, nPart, Part, Neigh, nParFiles, Param, bSub, nSubMesh, allArgs):
+    face = ((0,1,2,3),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7),(4,5,6,7))
 
-        # 3D->1D map
-        # [iz * (yMax * xMax)] + (iy * xMax)  + ix
-        #def Flatten3dArray(maxX, maxY, i, j, k):  
-        #  idx1D = (i - 1) * maxX * maxY + (j - 1) * maxY + k - 1 
-        #  return idx1D          
-        idx1D2 = Flatten3dArray(partX, partY, iPart[0], iPart[1], iPart[2])  
-        idx1D2 = idx1D2 + 1
-        idx1D2 = subId
+    if isinstance(nSubMesh, int):
+        subMeshes = nSubMesh
+        GetSubsClassic(BaseName, Grid, nPart, Part, Neigh, nParFiles, Param, bSub, allArgs)
+        return
+    else:
+        subMeshes = nSubMesh[0] * nSubMesh[1] * nSubMesh[2]
+        partX = nSubMesh[0]
+        partY = nSubMesh[1]
+        partZ = nSubMesh[2]
 
-        if bSub:
-          subdirId = getFormattedValue(allArgs.format, idx1D2)
-          subdirString = "GRID" + subdirId + ".tri"
-          localGridName=os.path.join(BaseName, subdirString)
-        else:
-          if not subExists[idx1D2-1]: 
-            print(f"mapping {[iPart[2]-1, iPart[1]-1, iPart[0]-1]} sub {idx1D2-1} ")
-            subdirId = getFormattedValue(allArgs.format, idx1D2)
-            subdirString = "sub" + subdirId
-            localGridName=os.path.join(BaseName, subdirString,"GRID.tri")
-            subExists[idx1D2-1] = True
-          else:
-            print(f"sub {idx1D2} already exists, mapping {[iPart[2]-1, iPart[1]-1, iPart[1]]-1}")
-            sys.exit(1)
-        OutputGrid(localGridName,localGrid)
+    # Unpack the grid structure into individual variables
+    (nel, nvt, coord, kvert, knpr) = Grid
+    # Unpack the parameterizations
+    (ParNames, ParTypes, Parameters, Boundaries) = Param
+    # Add new boundary nodes at partition borders
+    new_knpr = list(knpr)
 
-        if not isinstance(nSubMesh, int):
-          id = 1
-          subdirId = getFormattedValue(allArgs.format, idx1D2)
-          subdirString = "sub" + subdirId
+    for iPart, iNeigh, iElem in zip(Part, Neigh, kvert):
+        for Idx, f in zip(iNeigh, face):
+            if Idx > 0 and Part[Idx - 1] != iPart:
+                for k in range(4):
+                    new_knpr[iElem[f[k]] - 1] = 1
 
-          gridId = getFormattedValue(allArgs.format, id)
-          gridString = "GRID" + gridId + ".tri"
+    subExists = [False] * subMeshes 
+    print(f"Partitioning scheme: {nSubMesh}x, {nSubMesh}y, {nSubMesh}z\n")
 
-          localGridName=os.path.join(BaseName, subdirString, gridString)
-          OutputGrid(localGridName,localGrid)
+    # For all computation regions
+    subId = 0
+    for iPartX in range(1, partX + 1):
+        for iPartY in range(1, partY + 1):
+            for iPartZ in range(1, partZ + 1):
+                subId = subId + 1
+                # Determine which cells and nodes lie in this region 
+                iPart = [iPartZ, iPartY, iPartX]
+                iElem = tuple(eNum for (eNum, p) in enumerate(Part) if p == iPart)
+                if len(iElem) == 0:
+                    raise ValueError(f"Trying to create a partition with {len(iElem)} elements, which is not allowed. Partition id: {iPart}")
+                iCoor = set(vert - 1 for eNum in iElem for vert in kvert[eNum])
+                
+                # Create lookup lists: New index -> Old index
+                iCoor = list(iCoor)
+                iCoor.sort()
+                iCoor = tuple(iCoor)
+                
+                # Map node coordinates and properties
+                dCoor = tuple(coord[Idx] for Idx in iCoor)
+                dKnpr = tuple(new_knpr[Idx] for Idx in iCoor)
+                
+                # Create lookup list: Old node number -> New node number
+                LookUp = dict((k + 1, v) for (v, k) in enumerate(iCoor, 1))
+                
+                # Map the nodes of the elements
+                dKvert = tuple(tuple(map(lambda x: LookUp[x], kvert[Idx])) for Idx in iElem)
+                
+                # Output the grid
+                localGrid = (len(dKvert), len(dCoor), dCoor, dKvert, dKnpr)
 
-        ###
+                idx1D2 = Flatten3dArray(partX, partY, iPart[0], iPart[1], iPart[2])  
+                idx1D2 = idx1D2 + 1
+                idx1D2 = subId
 
-        localRestriktion=set(LookUp.keys())
-        for iPar in range(nParFiles):
-          if bSub:
-            subdirId = getFormattedValue(allArgs.format, idx1D2)
-            localParName=os.path.join(BaseName,"%s_"%(ParNames[iPar]) + subdirId + ".par")
-          else:
-            subdirId = getFormattedValue(allArgs.format, idx1D2)
-            localParName=os.path.join(BaseName,"sub" + subdirId,"%s.par"%ParNames[iPar])
+                if bSub:
+                    subdirId = getFormattedValue(allArgs.format, idx1D2)
+                    subdirString = "GRID" + subdirId + ".tri"
+                    localGridName = os.path.join(BaseName, subdirString)
+                else:
+                    if not subExists[idx1D2 - 1]: 
+                        print(f"Mapping {[iPart[2] - 1, iPart[1] - 1, iPart[0] - 1]} sub {idx1D2 - 1} ")
+                        subdirId = getFormattedValue(allArgs.format, idx1D2)
+                        subdirString = "sub" + subdirId
+                        localGridName = os.path.join(BaseName, subdirString, "GRID.tri")
+                        subExists[idx1D2 - 1] = True
+                    else:
+                        print(f"Sub {idx1D2} already exists, mapping {[iPart[2] - 1, iPart[1] - 1, iPart[1]] - 1}")
+                        sys.exit(1)
+                
+                OutputGrid(localGridName, localGrid)
 
-          # Wenn ein Knoten in der alten Randparametrisierung ist und im neuen Teilgebiet
-          # dann gehoert er dort auch zur Randparametrisierung
-          localBoundary=[LookUp[i] for i in (Boundaries[iPar]&localRestriktion)]
-          localBoundary.sort()
-          OutputParFile(localParName,ParTypes[iPar],Parameters[iPar],localBoundary)
+                if not isinstance(nSubMesh, int):
+                    id = 1
+                    subdirId = getFormattedValue(allArgs.format, idx1D2)
+                    subdirString = "sub" + subdirId
+                    gridId = getFormattedValue(allArgs.format, id)
+                    gridString = "GRID" + gridId + ".tri"
+                    localGridName = os.path.join(BaseName, subdirString, gridString)
+                    OutputGrid(localGridName, localGrid)
 
-          if not isinstance(nSubMesh, int):
-            id = 1
-            subdirId = getFormattedValue(allArgs.format, idx1D2)
-            subdirString = "sub" + subdirId
+                # Local restriction set
+                localRestriktion = set(LookUp.keys())
+                for iPar in range(nParFiles):
+                    if bSub:
+                        subdirId = getFormattedValue(allArgs.format, idx1D2)
+                        localParName = os.path.join(BaseName, "%s_" % (ParNames[iPar]) + subdirId + ".par")
+                    else:
+                        subdirId = getFormattedValue(allArgs.format, idx1D2)
+                        localParName = os.path.join(BaseName, "sub" + subdirId, "%s.par" % ParNames[iPar])
 
-            parId = getFormattedValue(allArgs.format, id)
+                    # If a node is in the old boundary parameterization and in the new region,
+                    # then it belongs to the boundary parameterization in the new region
+                    localBoundary = [LookUp[i] for i in (Boundaries[iPar] & localRestriktion)]
+                    localBoundary.sort()
+                    OutputParFile(localParName, ParTypes[iPar], Parameters[iPar], localBoundary)
 
-            localParName=os.path.join(BaseName, subdirString, "%s_"%(ParNames[iPar]) + parId + ".par" )
-            OutputParFile(localParName,ParTypes[iPar],Parameters[iPar],localBoundary)
+                    if not isinstance(nSubMesh, int):
+                        id = 1
+                        subdirId = getFormattedValue(allArgs.format, idx1D2)
+                        subdirString = "sub" + subdirId
+                        parId = getFormattedValue(allArgs.format, id)
+                        localParName = os.path.join(BaseName, subdirString, "%s_" % (ParNames[iPar]) + parId + ".par")
+                        OutputParFile(localParName, ParTypes[iPar], Parameters[iPar], localBoundary)
 
 def GetSubsClassic(BaseName,Grid,nPart,Part,Neigh,nParFiles,Param,bSub, allArgs):
   face=((0,1,2,3),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7),(4,5,6,7))
@@ -350,8 +340,8 @@ def GetSubsClassic(BaseName,Grid,nPart,Part,Neigh,nParFiles,Param,bSub, allArgs)
   # Add new boundary nodes at partition borders
   new_knpr=list(knpr)
 
-  for (iPart,iNeigh,iElem) in zip(Part,Neigh,kvert):
-    for (Idx,f) in zip(iNeigh,face):
+  for iPart,iNeigh,iElem in zip(Part,Neigh,kvert):
+    for Idx,f in zip(iNeigh,face):
       if Idx>0 and Part[Idx-1]!=iPart:
         for k in range(4):
           new_knpr[iElem[f[k]]-1]=1
@@ -402,7 +392,7 @@ def _build_line_by_format_list(format,L,sep=" "):
   return sep.join(map(lambda x: format % (x,),L))+"\n"
 
 def OutputParFile(Name,Type,Parameters,Boundary):
-  print("Output parameter file: " + Name)
+  #print(f"Output parameter file: {Name}")
   with open(Name,"w") as f:
     f.write("%d %s\n"%(len(Boundary),Type))
     f.write(Parameters+"\n")
@@ -412,7 +402,7 @@ def OutputParFile(Name,Type,Parameters,Boundary):
 def OutputGrid(Name,Grid):
   # Auspacken der Gitterstruktur in einzelne Variablen
   (nel,nvt,coord,kvert,knpr)=Grid
-  print("Output grid file: " + Name)
+  #print(f"Output grid file: {Name}")
   with open(Name,'w') as f:
     f.write("Coarse mesh exported by Partitioner\n")
     f.write("Parametrisierung PARXC, PARYC, TMAXC\n")
