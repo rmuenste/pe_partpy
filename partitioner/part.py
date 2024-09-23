@@ -448,167 +448,174 @@ def MultPartitionAlongAxis(Grid,nSubMesh,Method):
 
   return tuple(Part)
 
-def AxisBasedPartitioning(Grid,nSubMesh,Method):
-  (nel,nvt,coord,kvert,knpr)=Grid
-  # An array that tells you in which partition the i-th is
-  # Let Part be a list of tuples (x, y, z) where x, y, z are the
-  # cartesian indices of the partition
-  #Part=[[0, 0, 0],]*nel
-  Part = [[0,0,0] for _ in range(nel)]
+def AxisBasedPartitioning(grid, n_sub_mesh, method):
+    (num_elements, num_vertices, coordinates, element_vertices, knpr) = grid
 
-  Dir = 2
-  order = 0
-  zCoords = [p[Dir] for p in coord]
-  numCoords = len(zCoords)  
-  zCoords.sort()
-  zMin = zCoords[0]
-  zMax = zCoords[numCoords-1]
+    # Initialize partition indices for each element
+    # Each element will have a partition index along x, y, z axes
+    element_partitions = [[0, 0, 0] for _ in range(num_elements)]
 
-  # TODO
-  # A negative z-coordinate as zmin cause trouble
-  # The delta for the z-subdivision
-  dZ = (zMax - zMin) / nSubMesh[Dir]
-  theList = [zMin + i * dZ for i in range(1, nSubMesh[Dir] + 1)]
-  print(zMin)
-  print(zMax)
-  print(dZ)
-  print(theList)
-  PosFak=1
-  for (ElemIdx,Elem) in enumerate(kvert):
-    for idx, val in enumerate(theList):
-#      if all([(coord[Vert-1][Dir] -val <= 1e-5) for Vert in Elem]):
-        count = 0
-        for Vert in Elem:
-          dist = coord[Vert-1][Dir] - (val + zMin)  
-          if dist <= 1e-5:
-            count = count + 1
-        if count == 8:
-          Part[ElemIdx][order]=idx + 1
-          break
+    # Define axes
+    axes = [0, 1, 2]  # x, y, z
+    axis_names = ['x', 'y', 'z']
 
-  # y-subdivision
-  Dir = 1
-  order = 1
-  yCoords = [p[Dir] for p in coord]
-  numCoords = len(yCoords)  
-  yCoords.sort()
-  yMin = yCoords[0]
-  yMax = yCoords[numCoords-1]
+    for axis_order, axis_index in enumerate(reversed(axes)):
+        # Get coordinates along the current axis
+        coords_along_axis = [coord[axis_index] for coord in coordinates]
+        min_coord = min(coords_along_axis)
+        max_coord = max(coords_along_axis)
 
-  # The delta for the y-subdivision
-  dY = (yMax - yMin) / nSubMesh[Dir]
-  theList = [i * dY for i in range(1, nSubMesh[Dir] + 1)]
-  print(yMin)
-  print(yMax)
-  print(dY)
-  print(theList)
-  PosFak=1
-  for (ElemIdx,Elem) in enumerate(kvert):
-    for idx, val in enumerate(theList):
-      count = 0
-      for Vert in Elem:
-        dist = coord[Vert-1][Dir] - (yMin + val)
-        if dist <= 1e-5:
-          count = count + 1
-      if count == 8:
-        Part[ElemIdx][order]=idx + 1
-        break
-  # x-subdivision
-  Dir = 0
-  order = 2
-  xCoords = [p[Dir] for p in coord]
-  numCoords = len(xCoords)  
-  xCoords.sort()
-  xMin = xCoords[0]
-  xMax = xCoords[numCoords-1]
+        # Number of partitions along this axis
+        num_partitions = n_sub_mesh[axis_index]
 
-  # The delta for the x-subdivision
-  dX = (xMax - xMin) / nSubMesh[Dir]
-  theList = [i * dX for i in range(1, nSubMesh[Dir] + 1)]
-  print(xMin)
-  print(xMax)
-  print(dX)
-  print(theList)
-  PosFak=1
-  for (ElemIdx,Elem) in enumerate(kvert):
-    for idx, val in enumerate(theList):
-      count = 0
-      for Vert in Elem:
-        dist = coord[Vert-1][Dir] - (xMin + val)
-        if dist <= 1e-5:
-          count = count + 1
-      if count == 8:
-        Part[ElemIdx][order]=idx + 1
-        break
+        # Calculate partition boundaries
+        delta = (max_coord - min_coord) / num_partitions
+        partition_boundaries = [min_coord + i * delta for i in range(1, num_partitions + 1)]
 
-  return tuple(Part)
+        print(f"Axis: {axis_names[axis_index]}, Min: {min_coord}, Max: {max_coord}, Delta: {delta}")
+        print(f"Partition boundaries: {partition_boundaries}")
 
-def PartitionAlongAxis(Grid,nSubMesh,Method):
-  # Berechne 1D Median einer Liste (die Liste wird dabei sortiert)
+        # Assign elements to partitions along the current axis
+        for element_index, element_nodes in enumerate(element_vertices):
+            for partition_idx, boundary in enumerate(partition_boundaries):
+                # Check if all vertices of the element are within the current partition
+                if all(coordinates[vertex_index - 1][axis_index] <= boundary + 1e-5 for vertex_index in element_nodes):
+                    element_partitions[element_index][axis_order] = partition_idx + 1
+                    break
+
+    return tuple(element_partitions)
+
+def plane_based_partitioning(grid, planes):
+    """
+    Partitions elements based on their position relative to a list of planes.
+
+    Args:
+        grid (tuple): A tuple containing grid information:
+            - num_elements (int): Number of elements.
+            - num_vertices (int): Number of vertices.
+            - coordinates (list of tuples): Coordinates of vertices.
+            - element_vertices (list of tuples): Vertex indices for each element.
+            - knpr (list): Additional grid data.
+        planes (list): A pre-ordered list of planes, where each plane is represented as:
+            - ((point_x, point_y, point_z), (normal_x, normal_y, normal_z))
+
+    Returns:
+        tuple: A tuple containing the partition index for each element.
+    """
+    num_elements, num_vertices, coordinates, element_vertices, knpr = grid
+
+    # Initialize partition indices for each element
+    # element_partitions[element_index] = partition_index
+    element_partitions = [0] * num_elements
+
+    # Loop over each element
+    for element_index, element_node_indices in enumerate(element_vertices):
+        # Loop over each plane
+        for plane_index, (plane_point, plane_normal) in enumerate(planes):
+            # Check if all vertices of the element are in the half-space defined by the plane
+            all_vertices_in_half_space = True
+
+            for vertex_index in element_node_indices:
+                # Get the coordinates of the vertex
+                vertex_coords = coordinates[vertex_index - 1]  # Adjust for zero-based indexing
+
+                # Compute (P - P0) • n
+                vector_p0_to_p = (
+                    vertex_coords[0] - plane_point[0],
+                    vertex_coords[1] - plane_point[1],
+                    vertex_coords[2] - plane_point[2]
+                )
+
+                dot_product = (
+                    vector_p0_to_p[0] * plane_normal[0] +
+                    vector_p0_to_p[1] * plane_normal[1] +
+                    vector_p0_to_p[2] * plane_normal[2]
+                )
+
+                # Check if the vertex is in the half-space
+                if dot_product < -1e-5:  # Allowing a small tolerance
+                    all_vertices_in_half_space = False
+                    break  # No need to check other vertices for this plane
+
+            if all_vertices_in_half_space:
+                # Assign the element to the current partition and move to the next element
+                element_partitions[element_index] = plane_index + 1  # Partition indices start from 1
+                break  # Move to the next element
+
+        else:
+            # If the element was not assigned to any partition, you can decide how to handle it
+            # For now, we'll assign it to partition 0 (unassigned)
+            pass
+
+    return tuple(element_partitions)
+
+def PartitionAlongAxis(Grid, nSubMesh, Method):
+  # Calculate 1D median of a list (the list is sorted in the process)
   def median(L):
-    Length=len(L)
-    assert Length>0, "Only for non-empty lists can a median be computed!"
+    Length = len(L)
+    assert Length > 0, "Only for non-empty lists can a median be computed!"
     L.sort()
-    Idx=(Length-1)//2
-    return (L[Idx]+L[Idx+1])/2.0 if Length%2==0 else L[Idx]
-  # Ab hier fängt die eigentliche Routine an.
-  # Bestimme zuerst, ob die Parameter gültig sind
-  assert Method<0, "Only Methods <0 are valid!"
-  tmp=str(-Method)
-  assert tmp.strip("1234")=="", "Only 1, 2, 3 or 4 are valid axis!"
-  Axis=list(map(lambda char: char in tmp,"1234"))
+    Idx = (Length - 1) // 2
+    return (L[Idx] + L[Idx + 1]) / 2.0 if Length % 2 == 0 else L[Idx]
+
+  # The actual routine starts here.
+  # First, check if the parameters are valid
+  assert Method < 0, "Only Methods <0 are valid!"
+  tmp = str(-Method)
+  assert tmp.strip("1234") == "", "Only 1, 2, 3 or 4 are valid axes!"
+  Axis = list(map(lambda char: char in tmp, "1234"))
 
   if -Method == 4:
-    return AxisBasedPartitioning(Grid,nSubMesh,Method)
+    return AxisBasedPartitioning(Grid, nSubMesh, Method)
 
-  NumAxis=sum(Axis)
-  nSub=2**NumAxis
+  NumAxis = sum(Axis)
+  nSub = 2**NumAxis
 
-  assert nSub==nSubMesh, "Your subgrid splitting choice requires exactly %d subgrids!"%nSub  
-  # Entpacke die Informationen in Parameter Grid
-  (nel,nvt,coord,kvert,knpr)=Grid
-  # Initialisiere Gebietsaufteilung der Elemente (Am Anfang nur ein Gebiet!)
-  Part=[1,]*nel
-  # Spaltungsprozedere für alle gewählten Richtungen
-  PosFak=1
+  assert nSub == nSubMesh, "Your subgrid splitting choice requires exactly %d subgrids!" % nSub
+  # Unpack the information in parameter Grid
+  (nel, nvt, coord, kvert, knpr) = Grid
+  # Initialize the partitioning of the elements (Initially, only one region!)
+  Part = [1,] * nel
+  # Splitting procedure for all chosen directions
+  PosFak = 1
   for Dir in range(3):
     if Axis[Dir]:
-      # Bestimme Median für die gewählte Richtung
-      Mid=median([p[Dir] for p in coord])
-      # Teile die Elemente dahingehend auf, ob alle Knoten <=Mid sind oder nicht
-      for (ElemIdx,Elem) in enumerate(kvert):
-        if all([(coord[Vert-1][Dir]>=Mid) for Vert in Elem]):
-          Part[ElemIdx]+=PosFak
-      # Bestimme nächste 2er Potenz im Stellenwertsystem
-      PosFak*=2
+      # Determine the median for the chosen direction
+      Mid = median([p[Dir] for p in coord])
+      # Split the elements based on whether all nodes are <= Mid or not
+      for (ElemIdx, Elem) in enumerate(kvert):
+        if all([(coord[Vert - 1][Dir] >= Mid) for Vert in Elem]):
+          Part[ElemIdx] += PosFak
+      # Determine the next power of 2 in the positional system
+      PosFak *= 2
   return tuple(Part)
 
-# Dokumentation
+# Documentation
 __doc__ = \
 """
-Dieses Modul führt die Partitionierung eines Gitters mittels der Metis-Bibliothek durch.
+This module performs the partitioning of a grid using the Metis library.
 """
-# Startroutine des Moduls, die Metis lädt.
-if os.name=="posix":
-  metis=_try_in_place_first("libmetis.so")
-elif os.name=="nt":
-  metis=_try_in_place_first("metis.dll")
-else:
-  sys.exit("Loading of Metis not yet implemented for platform '%s'!"%os.name)
 
-if metis==None:
+# Start routine of the module, which loads Metis.
+if os.name == "posix":
+  metis = _try_in_place_first("libmetis.so")
+elif os.name == "nt":
+  metis = _try_in_place_first("metis.dll")
+else:
+  sys.exit("Loading of Metis not yet implemented for platform '%s'!" % os.name)
+
+if metis is None:
   sys.exit("Could not load the Metis library!")
 
-# Füge Aufrufparameter von den drei verwendeten Metis-Funktionen hinzu
-_pidx=POINTER(c_int)
-_pint=POINTER(c_int)
-_PartArgs=(_pint,_pidx,_pidx,_pidx,_pidx,_pint,_pint,_pint,_pint,_pint,_pidx)
-metis.METIS_PartGraphRecursive.argtypes=_PartArgs
-metis.METIS_PartGraphVKway.argtypes=_PartArgs
-metis.METIS_PartGraphKway.argtypes=_PartArgs
-metis_func=(metis.METIS_PartGraphRecursive,metis.METIS_PartGraphVKway,metis.METIS_PartGraphKway)
+# Add call parameters for the three Metis functions used
+_pidx = POINTER(c_int)
+_pint = POINTER(c_int)
+_PartArgs = (_pint, _pidx, _pidx, _pidx, _pidx, _pint, _pint, _pint, _pint, _pint, _pidx)
+metis.METIS_PartGraphRecursive.argtypes = _PartArgs
+metis.METIS_PartGraphVKway.argtypes = _PartArgs
+metis.METIS_PartGraphKway.argtypes = _PartArgs
+metis_func = (metis.METIS_PartGraphRecursive, metis.METIS_PartGraphVKway, metis.METIS_PartGraphKway)
 
-if __name__=="__main__":
-  if metis!=None:
+if __name__ == "__main__":
+  if metis is not None:
     print("Metis has been loaded.")
-

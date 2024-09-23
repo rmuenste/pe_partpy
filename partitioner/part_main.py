@@ -42,7 +42,7 @@ def checkParameters(params):
         print(axisParams[0][1:])
         if not (axisParams[0][0] in ("x", "y", "z")):
             sys.exit(__doc__)
-    if not os.path.exists(params[5]):
+    if not Path(params[5]).exists():
         sys.exit("Project file '%s' does not exist!" % params[5])
 
     # Sanity check of the parameters
@@ -58,10 +58,10 @@ def checkParameters(params):
     if NPart < 1:
         sys.exit("Number of partitions must be >= 1!")
 
-    if PartMethod != -4:
+    if PartMethod not in (-4, -5):
         if NSubPart < 1:
             sys.exit("There must be at least one subgrid!")
-    elif PartMethod == -4:
+    elif PartMethod in (-4, -5):
         totalParts = 1
         for x in NSubPart:
             totalParts = totalParts * x
@@ -69,9 +69,9 @@ def checkParameters(params):
         if totalParts != NPart:
             sys.exit("The given number of partitions does not match the product of the subdivisions {} != {} * {} * {}".format(NPart, NSubPart[0], NSubPart[1], NSubPart[2]))
 
-    if not (PartMethod in (1, 2, 3, 11, 12, 13) or str(-PartMethod).strip("1234") == ""):
+    if not (PartMethod in (1, 2, 3, 11, 12, 13) or str(-PartMethod).strip("12345") == ""):
         sys.exit("Only integer numbers 1, 2, 3 (+10) or negative numbers containing " +
-                 "the digits 1, 2, 3, 4 are valid partitioning methods!")
+                 "the digits 1, 2, 3, 4, 5 are valid partitioning methods!")
 
     if PartMethod != -4:
         if PartMethod < 0 and NSubPart == 1:
@@ -84,6 +84,30 @@ def checkParameters(params):
     # Return the parameters
     return NPart, PartMethod, NSubPart, MeshName, ProjektFile
 
+def calculateNumSubMeshes(nSubs, method):
+    if method in (-4, -5):
+        return nSubs[0] * nSubs[1] * nSubs[2]
+    else:
+       return nSubs 
+
+def createSubDirectories(nSubs, workPath, formatString):
+    for i in range(1, nSubs + 1):
+        subdirId = getFormattedValue(formatString, i)
+        subdirString = "sub" + subdirId
+        mkdir( workPath / subdirString)
+
+#=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+def loadPlanesFile(workingDir):
+    planes = []
+    with open(workingDir / "my_planes.txt", "r") as f:
+        for line in f.readlines():
+            str_values = line.split()
+            point  = tuple([float(val) for val in str_values[0:3]])
+            normal = tuple([float(val) for val in str_values[3:7]])
+            planes.append((point, normal))
+    return planes
+
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 # Main routine
@@ -95,24 +119,13 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
     # Create the main directory for work
     workPath = Path("_mesh") / MeshName 
     mkdir(workPath)
+    print(f"Workpath = {workPath}")
 
     # Copy all necessary files to this directory
     copy(myGridFile, workPath / "GRID.tri")
     copy(ProjektFile, workPath / "GRID.prj")
     for iPar in range(nParFiles):
         copy(myParFiles[iPar], workPath / (myParNames[iPar] + ".par"))
-
-    # Create additional subdirectories if subgrids are to be generated
-    subMeshes = 0
-    if origMethod == -4:
-        subMeshes = nSubMesh[0] * nSubMesh[1] * nSubMesh[2]
-    else:
-        subMeshes = nSubMesh
-
-    for i in range(1, subMeshes + 1):
-        subdirId = getFormattedValue(allArgs.format, i)
-        subdirString = "sub" + subdirId
-        mkdir( workPath / subdirString)
 
     # Determine if subgrids should be stored in reverse order
     if pMethod in (11, 12, 13):
@@ -124,8 +137,14 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
     # Special marker for atomic splitting, needed if nSubMesh > 1 and nnPart equals the number of grid cells in the main grid
     bAtomicSplitting = False
 
+    # Create additional subdirectories if subgrids are to be generated
+    subMeshes = calculateNumSubMeshes(nSubMesh, origMethod)
+
+    createSubDirectories(subMeshes, workPath, allArgs.format)
+
     # If subgrids are to be generated, split the main grid; otherwise, use the main grid as subgrid 1
-    if origMethod == -4 or nSubMesh > 1:
+    if origMethod in (-4, -5) or (isinstance(nSubMesh, int) and nSubMesh > 1):
+
         # Read the grid
         myGrid = GetGrid(workPath /"GRID.tri")
         # (Number of grid cells == nnPart) => activate atomic splitting
@@ -139,7 +158,7 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
         myBoundaries = []
 
         for iPar in range(nParFiles):
-            ParName = workPath / myParNames[iPar] + ".par"
+            ParName = workPath / (myParNames[iPar] + ".par")
             (ParType, Parameter, Boundary) = GetPar(ParName, myGrid[1])
             myParTypes.append(ParType)
             myParameters.append(Parameter)
@@ -148,6 +167,10 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
         # Subdivision into subgrids
         if pMethod in (1, 2, 3):
             myPart = GetParts(myNeigh, nSubMesh, pMethod)
+        elif origMethod == -5:
+            caseFolder = Path(ProjektFile).parent
+            planes = loadPlanesFile(caseFolder)
+            myPart = plane_based_partitioning(myGrid, planes)
         else:
             try:
                 myPart = PartitionAlongAxis(myGrid, nSubMesh, pMethod)
@@ -169,6 +192,7 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
         copy(ProjektFile, workPath / f"sub{subdirId}" / "GRID.prj")
         for iPar in range(nParFiles):
             copy(myParFiles[iPar], workPath / f"sub{subdirId}" / (myParNames[iPar] + ".par"))
+
 
     # Essentially "kSubPart=int(math.ceil(nnPart/float(nSubMesh)))"
     if isinstance(nSubMesh, int):
@@ -212,6 +236,7 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
         myParam = (myParNames, myParTypes, myParameters, myBoundaries)
 
         if origMethod == -4:
+            raise RuntimeError("We should not get into this control path.")
             GetSubs(subPath, myGrid, nPart, myPart, myNeigh, nParFiles, myParam, True, 0, allArgs)
         else:
             GetSubs(subPath, myGrid, nPart, myPart, myNeigh, nParFiles, myParam, True, nSubMesh, allArgs)
