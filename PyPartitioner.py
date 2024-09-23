@@ -21,7 +21,7 @@ parser.add_argument('MeshName', type=str, help='Mesh name')
 parser.add_argument('ProjektFile', type=str, help='Project file path')
 
 # Define optional argument
-parser.add_argument('-f', '--format', type=str, default="v1", help='Format option')
+parser.add_argument('-f', '--format', type=str, default="v2", help='Format option')
 
 # Parse the arguments
 args = parser.parse_args()

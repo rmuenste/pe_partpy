@@ -464,6 +464,8 @@ def AxisBasedPartitioning(Grid,nSubMesh,Method):
   zMin = zCoords[0]
   zMax = zCoords[numCoords-1]
 
+  # TODO
+  # A negative z-coordinate as zmin cause trouble
   # The delta for the z-subdivision
   dZ = (zMax - zMin) / nSubMesh[Dir]
   theList = [zMin + i * dZ for i in range(1, nSubMesh[Dir] + 1)]
