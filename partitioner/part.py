@@ -244,7 +244,7 @@ def GetSubs(BaseName, Grid, nPart, Part, Neigh, nParFiles, Param, bSub, nSubMesh
                     new_knpr[iElem[f[k]] - 1] = 1
 
     subExists = [False] * subMeshes 
-    print(f"Partitioning scheme: {nSubMesh}x, {nSubMesh}y, {nSubMesh}z\n")
+    print(f"Partitioning scheme: {nSubMesh[0]}x, {nSubMesh[1]}y, {nSubMesh[2]}z\n")
 
     # For all computation regions
     subId = 0
@@ -255,6 +255,7 @@ def GetSubs(BaseName, Grid, nPart, Part, Neigh, nParFiles, Param, bSub, nSubMesh
                 # Determine which cells and nodes lie in this region 
                 iPart = [iPartZ, iPartY, iPartX]
                 iElem = tuple(eNum for (eNum, p) in enumerate(Part) if p == iPart)
+                print(f"Number of elements in partition {iPart} : {len(iElem)}")
                 if len(iElem) == 0:
                     raise ValueError(f"Trying to create a partition with {len(iElem)} elements, which is not allowed. Partition id: {iPart}")
                 iCoor = set(vert - 1 for eNum in iElem for vert in kvert[eNum])
@@ -506,7 +507,7 @@ def plane_based_partitioning(grid, planes):
 
     # Initialize partition indices for each element
     # element_partitions[element_index] = partition_index
-    element_partitions = [0] * num_elements
+    element_partitions = [[1, 1, 0] for _ in range(num_elements)]
 
     # Loop over each element
     for element_index, element_node_indices in enumerate(element_vertices):
@@ -539,7 +540,7 @@ def plane_based_partitioning(grid, planes):
 
             if all_vertices_in_half_space:
                 # Assign the element to the current partition and move to the next element
-                element_partitions[element_index] = plane_index + 1  # Partition indices start from 1
+                element_partitions[element_index][2] = plane_index + 1  # Partition indices start from 1
                 break  # Move to the next element
 
         else:

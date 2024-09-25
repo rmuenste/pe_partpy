@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: set filetype=python
 """
-This module is the driver script to perform a hex
+This script can be used to display partitions in ParaView
 
 """
 import os
