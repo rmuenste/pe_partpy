@@ -108,7 +108,7 @@ def loadPlanesFile(workingDir):
                 normal = tuple([float(val) for val in str_values[3:7]])
                 planes.append((point, normal))
     except FileNotFoundError as e:
-        print(f"Error openning the file: {workingDir / "my_planes.txt"} which is needed for plane-based partitioning")
+        print(f"Error opening the file: {workingDir / "my_planes.txt"} which is needed for plane-based partitioning")
     return planes
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
