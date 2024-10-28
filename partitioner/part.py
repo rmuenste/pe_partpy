@@ -486,6 +486,81 @@ def AxisBasedPartitioning(grid, n_sub_mesh, method):
 
     return tuple(element_partitions)
 
+
+def dual_plane_based_partitioning(grid, planes_x, planes_y):
+    """
+    Partitions elements based on their position relative to two lists of planes.
+
+    Args:
+        grid (tuple): A tuple containing grid information:
+            - num_elements (int): Number of elements.
+            - num_vertices (int): Number of vertices.
+            - coordinates (list of tuples): Coordinates of vertices.
+            - element_vertices (list of tuples): Vertex indices for each element.
+            - knpr (list): Additional grid data.
+        planes_x (list): First list of planes for partitioning (along x-axis).
+            Each plane is represented as ((point_x, point_y, point_z), (normal_x, normal_y, normal_z)).
+        planes_y (list): Second list of planes for partitioning (dependent on planes_x partitions).
+            Must be the same length as planes_x.
+
+    Returns:
+        tuple: A tuple containing partition indices for each element.
+            Each element's partition index is a list [1, y_partition, x_partition],
+            where y_partition and x_partition are integers indicating the partition along y and x axes.
+    """
+    num_elements, num_vertices, coordinates, element_vertices, knpr = grid
+
+    # Initialize partition indices for each element
+    # element_partitions[element_index] = [1, y_partition, x_partition]
+    # Start with 1 in the first position as per your example
+    element_partitions = [[1, 0, 0] for _ in range(num_elements)]
+
+    # First partitioning: using planes_x
+    for element_index, element_node_indices in enumerate(element_vertices):
+        for plane_index, (plane_point, plane_normal) in enumerate(planes_x):
+            # Check if all vertices are in the half-space defined by the plane
+            if all(
+                sum(
+                    (coordinates[vertex_index - 1][dim] - plane_point[dim]) * plane_normal[dim]
+                    for dim in range(3)
+                ) >= -1e-5  # Tolerance for floating-point comparison
+                for vertex_index in element_node_indices
+            ):
+                # Assign the element to the current x_partition
+                element_partitions[element_index][2] = plane_index + 1  # Indices start from 1
+                break  # Move to the next element
+        else:
+            # Element not assigned in first partitioning
+            # Handle unassigned elements if necessary
+            element_partitions[element_index][2] = 0  # Unassigned partition
+
+    # Second partitioning: using planes_y based on x_partition
+    for element_index, element_node_indices in enumerate(element_vertices):
+        x_partition = element_partitions[element_index][2]
+        if x_partition == 0:
+            # Element was not assigned in the first partitioning, skip or handle as needed
+            continue
+
+        # Get the corresponding planeY for the current x_partition
+        planeY_point, planeY_normal = planes_y[x_partition - 1]
+
+        # Check if all vertices are in the half-space defined by planeY
+        if all(
+            sum(
+                (coordinates[vertex_index - 1][dim] - planeY_point[dim]) * planeY_normal[dim]
+                for dim in range(3)
+            ) >= -1e-5  # Tolerance for floating-point comparison
+            for vertex_index in element_node_indices
+        ):
+            # Assign the element to partition 1 along y-axis
+            element_partitions[element_index][1] = 1
+        else:
+            # Assign the element to partition 2 along y-axis
+            element_partitions[element_index][1] = 2
+
+    return tuple(element_partitions)
+
+
 def plane_based_partitioning(grid, planes):
     """
     Partitions elements based on their position relative to a list of planes.

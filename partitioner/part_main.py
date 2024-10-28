@@ -100,15 +100,16 @@ def createSubDirectories(nSubs, workPath, formatString):
 
 def loadPlanesFile(workingDir):
     planes = []
+    path = workingDir / "my_planes.txt"
     try:
-        with open(workingDir / "my_planes.txt", "r") as f:
+        with open(path, "r") as f:
             for line in f.readlines():
                 str_values = line.split()
                 point  = tuple([float(val) for val in str_values[0:3]])
                 normal = tuple([float(val) for val in str_values[3:7]])
                 planes.append((point, normal))
     except FileNotFoundError as e:
-        print(f"Error opening the file: {workingDir / "my_planes.txt"} which is needed for plane-based partitioning")
+        print(f"Error opening the file: {path} which is needed for plane-based partitioning")
     return planes
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
