@@ -5,6 +5,8 @@
 # "args": ["15", "1", "1", "NEWFAC", "./2D_FAC/2Dbench.prj"]
 # "args": ["27", "-4", "x3-y3-z3", "NEWFAC", "./dev3x3x3/dev3x3x3.prj"]
 # "args": ["2", "-3", "2", "NEWFAC2", "./2D_FAC/2Dbench.prj"]
+# "args": ["2", "-6", "2", "NEWFAC2", "./2D_FAC/2Dbench.prj"]
+# "args": ["30", "-6", "x15-y2-z1", "NEWFAC", "./CASE_090_771/file.prj"]
 
 import sys
 import os
