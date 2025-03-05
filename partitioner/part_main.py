@@ -58,10 +58,10 @@ def checkParameters(params):
     if NPart < 1:
         sys.exit("Number of partitions must be >= 1!")
 
-    if PartMethod not in (-4, -5, -6):
+    if PartMethod not in (-4, -5, -6, -7):
         if NSubPart < 1:
             sys.exit("There must be at least one subgrid!")
-    elif PartMethod in (-4, -5, -6):
+    elif PartMethod in (-4, -5, -6, -7):
         totalParts = 1
         for x in NSubPart:
             totalParts = totalParts * x
@@ -69,9 +69,9 @@ def checkParameters(params):
         if totalParts != NPart:
             sys.exit("The given number of partitions does not match the product of the subdivisions {} != {} * {} * {}".format(NPart, NSubPart[0], NSubPart[1], NSubPart[2]))
 
-    if not (PartMethod in (1, 2, 3, 11, 12, 13) or str(-PartMethod).strip("123456") == ""):
+    if not (PartMethod in (1, 2, 3, 11, 12, 13) or str(-PartMethod).strip("1234567") == ""):
         sys.exit("Only integer numbers 1, 2, 3 (+10) or negative numbers containing " +
-                 "the digits 1, 2, 3, 4, 5 are valid partitioning methods!")
+                 "the digits 1, 2, 3, 4, 5, 6, 7 are valid partitioning methods!")
 
     if PartMethod != -4:
         if PartMethod < 0 and NSubPart == 1:
@@ -85,7 +85,7 @@ def checkParameters(params):
     return NPart, PartMethod, NSubPart, MeshName, ProjektFile
 
 def calculateNumSubMeshes(nSubs, method):
-    if method in (-4, -5, -6):
+    if method in (-4, -5, -6, -7):
         return nSubs[0] * nSubs[1] * nSubs[2]
     else:
        return nSubs 
@@ -101,8 +101,8 @@ def createSubDirectories(nSubs, workPath, formatString):
 def loadPlanesFileXY(workingDir):
     planesX = []
     planesY = []
-    pathX = workingDir / "planes_x_seq.txt"
-    pathY = workingDir / "planes_y_seq.txt"
+    pathX = workingDir / "x_planes_part34.txt"
+    pathY = workingDir / "y_planes_part34.txt"
     try:
         with open(pathX, "r") as f:
             for line in f.readlines():
@@ -129,7 +129,7 @@ def loadPlanesFileXY(workingDir):
 
 def loadPlanesFile(workingDir):
     planes = []
-    path = workingDir / "my_planes.txt"
+    path = workingDir / "single_plane.txt"
     try:
         with open(path, "r") as f:
             for line in f.readlines():
@@ -139,6 +139,7 @@ def loadPlanesFile(workingDir):
                 planes.append((point, normal))
     except FileNotFoundError as e:
         print(f"Error opening the file: {path} which is needed for plane-based partitioning")
+        sys.exit(0)
     return planes
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -176,7 +177,7 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
     createSubDirectories(subMeshes, workPath, allArgs.format)
 
     # If subgrids are to be generated, split the main grid; otherwise, use the main grid as subgrid 1
-    if origMethod in (-4, -5, -6) or (isinstance(nSubMesh, int) and nSubMesh > 1):
+    if origMethod in (-4, -5, -6, -7) or (isinstance(nSubMesh, int) and nSubMesh > 1):
 
         # Read the grid
         myGrid = GetGrid(workPath /"GRID.tri")
@@ -208,6 +209,10 @@ def MainProcess(nnPart, pMethod, nSubMesh, MeshName, ProjektFile, allArgs):
             caseFolder = Path(ProjektFile).parent
             planesX, planesY = loadPlanesFileXY(caseFolder)
             myPart = dual_plane_based_partitioning(myGrid, planesX, planesY)
+        elif origMethod == -7:
+            caseFolder = Path(ProjektFile).parent
+            planes = loadPlanesFile(caseFolder)
+            myPart = plane_ring_based_partitioning(myGrid, planes)
         else:
             try:
                 myPart = PartitionAlongAxis(myGrid, nSubMesh, pMethod)

@@ -256,8 +256,8 @@ def GetSubs(BaseName, Grid, nPart, Part, Neigh, nParFiles, Param, bSub, nSubMesh
                 iPart = [iPartZ, iPartY, iPartX]
                 iElem = tuple(eNum for (eNum, p) in enumerate(Part) if p == iPart)
                 print(f"Number of elements in partition {iPart} : {len(iElem)}")
-                if len(iElem) == 0:
-                    raise ValueError(f"Trying to create a partition with {len(iElem)} elements, which is not allowed. Partition id: {iPart}")
+#                if len(iElem) == 0:
+#                    raise ValueError(f"Trying to create a partition with {len(iElem)} elements, which is not allowed. Partition id: {iPart}")
                 iCoor = set(vert - 1 for eNum in iElem for vert in kvert[eNum])
                 
                 # Create lookup lists: New index -> Old index
@@ -486,7 +486,6 @@ def AxisBasedPartitioning(grid, n_sub_mesh, method):
 
     return tuple(element_partitions)
 
-
 def dual_plane_based_partitioning(grid, planes_x, planes_y):
     """
     Partitions elements based on their position relative to two lists of planes.
@@ -622,6 +621,90 @@ def plane_based_partitioning(grid, planes):
             # If the element was not assigned to any partition, you can decide how to handle it
             # For now, we'll assign it to partition 0 (unassigned)
             pass
+
+    return tuple(element_partitions)
+
+def plane_ring_based_partitioning(grid, planes):
+    """
+    Partitions elements based on their position between sequential planes.
+
+    An element is assigned to partition 'j' if all its vertices are:
+        - Inside plane 'j' (using its normal vector).
+        - Inside plane 'j-1' using the flipped normal vector of plane 'j-1'.
+
+    For j=0, 'j-1' refers to the last plane (planes[-1]), forming a ring structure.
+
+    Args:
+        grid (tuple): A tuple containing grid information:
+            - num_elements (int): Number of elements.
+            - num_vertices (int): Number of vertices.
+            - coordinates (list of tuples): Coordinates of vertices.
+            - element_vertices (list of tuples): Vertex indices for each element.
+            - knpr (list): Additional grid data.
+        planes (list): A list of planes, where each plane is represented as:
+            - ((point_x, point_y, point_z), (normal_x, normal_y, normal_z))
+
+    Returns:
+        tuple: A tuple containing the partition index for each element.
+    """
+    num_elements, num_vertices, coordinates, element_vertices, knpr = grid
+
+    # Initialize partition indices for each element to 0 (unassigned)
+    element_partitions = [[1, 1, 0] for _ in range(num_elements)]
+
+    num_planes = len(planes)
+
+    # Loop over each element
+    for element_index, element_node_indices in enumerate(element_vertices):
+        # Loop over partitions (planes)
+        for j in range(num_planes):
+            # Current plane 'j'
+            plane_j_point, plane_j_normal = planes[j]
+            # Previous plane 'j-1' with index wrapping around (ring structure)
+            plane_j_minus_1_point, plane_j_minus_1_normal = planes[j - 1]
+            # Flip the normal vector of plane 'j-1'
+            plane_j_minus_1_normal_flipped = tuple(-component for component in plane_j_minus_1_normal)
+
+            # Flags to track if all vertices satisfy the conditions
+            all_vertices_inside_plane_j = True
+            all_vertices_inside_flipped_plane_j_minus_1 = True
+
+            # Check each vertex of the element
+            for vertex_index in element_node_indices:
+                vertex_coords = coordinates[vertex_index - 1]  # Adjust for zero-based indexing
+
+                # Check if vertex is inside plane 'j'
+                vector_to_vertex_j = tuple(
+                    vertex_coords[dim] - plane_j_point[dim] for dim in range(3)
+                )
+                dot_product_j = sum(
+                    vector_to_vertex_j[dim] * plane_j_normal[dim] for dim in range(3)
+                )
+                if dot_product_j < -1e-5:
+                    all_vertices_inside_plane_j = False
+                    break  # No need to check further for this partition
+
+                # Check if vertex is inside plane 'j-1' with flipped normal
+                vector_to_vertex_j_minus_1 = tuple(
+                    vertex_coords[dim] - plane_j_minus_1_point[dim] for dim in range(3)
+                )
+                dot_product_j_minus_1 = sum(
+                    vector_to_vertex_j_minus_1[dim] * plane_j_minus_1_normal_flipped[dim] for dim in range(3)
+                )
+                if dot_product_j_minus_1 < -1e-5:
+                    all_vertices_inside_flipped_plane_j_minus_1 = False
+                    break  # No need to check further for this partition
+
+            # Assign element to partition 'j+1' if it satisfies both conditions
+            if all_vertices_inside_plane_j and all_vertices_inside_flipped_plane_j_minus_1:
+                element_partitions[element_index][2] = j + 1  # Partition indices start from 1
+                break  # Move to the next element
+
+        else:
+            # Element does not fit into any partition
+            # You can handle unassigned elements here if necessary
+            print(f"Element {element_index} was not found in any partition.")
+            pass  # Currently leaves element_partitions[element_index] as 0
 
     return tuple(element_partitions)
 
