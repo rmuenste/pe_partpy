@@ -434,6 +434,7 @@ def indenter():
 #===============================================================================
 #                A VTK XML Unstructured Grid writer Old Version
 #===============================================================================
+#=======================================================================
 def writeHexMeshVTKXmlOld(hexMesh, fileName):
     """
     Writes out a hexMesh in XML vtu ParaView format 
@@ -578,6 +579,8 @@ def writeHexMeshVTKXmlOld(hexMesh, fileName):
         indentation = indentation[:len(indentation)-2]
 
         f.write("</VTKFile>\n")
+#=======================================================================
+
 
 
 #===============================================================================

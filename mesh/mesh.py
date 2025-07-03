@@ -1,10 +1,14 @@
-#/usr/bin/env python
+#!/usr/bin/env python
 # vim: set filetype=python
 """
-A module for mesh related classes and functions
+A module for mesh related classes and functions.
+
+This module provides classes and functions for handling quadrilateral and hexahedral meshes,
+including mesh quality assessment, boundary detection, and mesh extrusion operations.
 """
 import operator
 import sys
+from typing import List, Tuple, Optional, Set, Dict, Any, Union
 import numpy as np
 
 #===============================================================================
@@ -12,96 +16,145 @@ import numpy as np
 #===============================================================================
 class Quad:
     """
-    A class for a quad element
+    A class for a quadrilateral element.
 
     Attributes:
-        nodeIds: A list of the node Ids (indices) of each vertex of the
-                 quad
+        node_ids: A list of the node IDs (indices) of each vertex of the quad
         idx: The index of the quad element
+        zone_id: Zone identifier for the quad
+        traits: Additional properties of the quad
+        element_type: Type identifier for the element
+        neighbor_indices: Indices of neighboring elements (-1 if no neighbor)
+        has_boundary_face: Whether the quad has a face on the boundary
+        edge_length: Lengths of the four edges
+        principal_axes: Principal axes of the quad
+        diagonals: Diagonal lengths
+        vertex_normals: Normal vectors at vertices
+        normalized_vertex_normals: Normalized vertex normals
+        edge_vectors: Edge vectors
+        alpha_area: Alpha area components
+        area: Total area of the quad
+        signed_area: Signed area
+        jacobian: Jacobian determinant
+        edge_ratio: Ratio of longest to shortest edge
+        aspect_ratio: Aspect ratio of the quad
     """
-    def __init__(self, nodeIds, zoneId, idx):
-        self.nodeIds = nodeIds
+    
+    def __init__(self, node_ids: List[int], zone_id: int, idx: int) -> None:
+        """Initialize a quad element.
+        
+        Args:
+            node_ids: List of node indices forming the quad
+            zone_id: Zone identifier
+            idx: Element index
+        """
+        self.node_ids = node_ids
         self.idx = idx
-        self.zoneId = zoneId
-        self.traits = []
-        self.type = 0
-        self.neighIdx = [-1] * 4
-        self.hasBoundaryFace = False
-        self.edgeLength = [-1.0] * 4
-        self.principalAxes = []
-        self.diagonals = []
-        self.vertexNormals = []
-        self.normVertexNormals = []
-        self.edgeVectors = []
-        self.alphaArea = []
+        self.zone_id = zone_id
+        self.traits: List[Any] = []
+        self.element_type = 0
+        self.neighbor_indices = [-1] * 4
+        self.has_boundary_face = False
+        self.edge_length = [-1.0] * 4
+        self.principal_axes: List[np.ndarray] = []
+        self.diagonals: List[float] = []
+        self.vertex_normals: List[np.ndarray] = []
+        self.normalized_vertex_normals: List[np.ndarray] = []
+        self.edge_vectors: List[np.ndarray] = []
+        self.alpha_area: List[float] = []
         self.area = 0.0
-        self.signedArea = 0.0
+        self.signed_area = 0.0
         self.jacobian = 0.0
-        self.edgeRatio = 0.0
-        self.aspectRatio = 0.0
+        self.edge_ratio = 0.0
+        self.aspect_ratio = 0.0
 
 
 #===============================================================================
 #                       Function computeEdgeLength
 #===============================================================================
-    def computeEdgeLength(self, vertices):
-        self.edgeVectors.append((vertices[1] - vertices[0]))  
-        self.edgeVectors.append((vertices[2] - vertices[1]))  
-        self.edgeVectors.append((vertices[3] - vertices[2]))  
-        self.edgeVectors.append((vertices[0] - vertices[3]))  
+    def compute_edge_length(self, vertices: List[np.ndarray]) -> None:
+        """Compute edge lengths and edge vectors for the quad.
+        
+        Args:
+            vertices: List of vertex coordinates as numpy arrays
+        """
+        self.edge_vectors.append((vertices[1] - vertices[0]))  
+        self.edge_vectors.append((vertices[2] - vertices[1]))  
+        self.edge_vectors.append((vertices[3] - vertices[2]))  
+        self.edge_vectors.append((vertices[0] - vertices[3]))  
 
-        self.edgeLength[0] = np.linalg.norm(self.edgeVectors[0])  
-        self.edgeLength[1] = np.linalg.norm(self.edgeVectors[1])  
-        self.edgeLength[2] = np.linalg.norm(self.edgeVectors[2])  
-        self.edgeLength[3] = np.linalg.norm(self.edgeVectors[3])  
+        self.edge_length[0] = np.linalg.norm(self.edge_vectors[0])  
+        self.edge_length[1] = np.linalg.norm(self.edge_vectors[1])  
+        self.edge_length[2] = np.linalg.norm(self.edge_vectors[2])  
+        self.edge_length[3] = np.linalg.norm(self.edge_vectors[3])
 
 
 #===============================================================================
 #                       Function computeDiagonals
 #===============================================================================
-    def computeDiagonals(self, vertices):
+    def compute_diagonals(self, vertices: List[np.ndarray]) -> None:
+        """Compute diagonal lengths for the quad.
+        
+        Args:
+            vertices: List of vertex coordinates as numpy arrays
+        """
         self.diagonals.append(np.linalg.norm(vertices[2] - vertices[0]))  
-        self.diagonals.append(np.linalg.norm(vertices[3] - vertices[1]))  
+        self.diagonals.append(np.linalg.norm(vertices[3] - vertices[1]))
 
 
 #===============================================================================
 #                       Function computePrincipalAxes
 #===============================================================================
-    def computePrincipalAxes(self, vertices):
-        self.principalAxes.append((vertices[1] - vertices[0]) + (vertices[2] - vertices[3]))  
-        self.principalAxes.append((vertices[2] - vertices[1]) + (vertices[3] - vertices[0]))  
+    def compute_principal_axes(self, vertices: List[np.ndarray]) -> None:
+        """Compute principal axes for the quad.
+        
+        Args:
+            vertices: List of vertex coordinates as numpy arrays
+        """
+        self.principal_axes.append((vertices[1] - vertices[0]) + (vertices[2] - vertices[3]))  
+        self.principal_axes.append((vertices[2] - vertices[1]) + (vertices[3] - vertices[0]))
 
 
 #===============================================================================
 #                       Function computeVertexNormals
 #===============================================================================
-    def computeVertexNormals(self, vertices):
-        self.vertexNormals.append(np.cross(self.edgeVectors[3], self.edgeVectors[0]))  
-        self.vertexNormals.append(np.cross(self.edgeVectors[0], self.edgeVectors[1]))  
-        self.vertexNormals.append(np.cross(self.edgeVectors[1], self.edgeVectors[2]))  
-        self.vertexNormals.append(np.cross(self.edgeVectors[2], self.edgeVectors[3]))  
-        self.vertexNormals.append(np.cross(self.principalAxes[0], self.principalAxes[1]))  
+    def compute_vertex_normals(self, vertices: List[np.ndarray]) -> None:
+        """Compute vertex normals for the quad.
         
-        self.normVertexNormals.append(self.vertexNormals[0]/np.linalg.norm(self.vertexNormals[0]))
-        self.normVertexNormals.append(self.vertexNormals[1]/np.linalg.norm(self.vertexNormals[1]))
-        self.normVertexNormals.append(self.vertexNormals[2]/np.linalg.norm(self.vertexNormals[2]))
-        self.normVertexNormals.append(self.vertexNormals[3]/np.linalg.norm(self.vertexNormals[3]))
+        Args:
+            vertices: List of vertex coordinates as numpy arrays
+        """
+        self.vertex_normals.append(np.cross(self.edge_vectors[3], self.edge_vectors[0]))  
+        self.vertex_normals.append(np.cross(self.edge_vectors[0], self.edge_vectors[1]))  
+        self.vertex_normals.append(np.cross(self.edge_vectors[1], self.edge_vectors[2]))  
+        self.vertex_normals.append(np.cross(self.edge_vectors[2], self.edge_vectors[3]))  
+        self.vertex_normals.append(np.cross(self.principal_axes[0], self.principal_axes[1]))  
+        
+        for i in range(4):
+            self.normalized_vertex_normals.append(
+                self.vertex_normals[i] / np.linalg.norm(self.vertex_normals[i])
+            )
 
-        self.normVertexNormals.append(self.vertexNormals[4]/np.linalg.norm(self.vertexNormals[4]))
+        self.normalized_vertex_normals.append(
+            self.vertex_normals[4] / np.linalg.norm(self.vertex_normals[4])
+        )
 
 
 #===============================================================================
 #                       Function computeAlphaArea
 #===============================================================================
-    def computeAlphaArea(self, vertices):
+    #=======================================================================
+    def compute_alpha_area(self, vertices: List[np.ndarray]) -> None:
+        """Compute alpha area components for the quad.
+        
+        Args:
+            vertices: List of vertex coordinates as numpy arrays
+        """
         for i in range(4):
-            self.alphaArea.append(np.dot(self.normVertexNormals[4], self.vertexNormals[i]))
-#            print("Alpha area: " + str(np.dot(self.normVertexNormals[4], self.vertexNormals[i])))
-#            print("Normal: ")
-#            print(self.vertexNormals[i])
-#
-#        print("Center Normal: ")
-#        print(self.normVertexNormals[4])
+            self.alpha_area.append(
+                np.dot(self.normalized_vertex_normals[4], self.vertex_normals[i])
+            )
+#=======================================================================
 
 
 #===============================================================================
@@ -109,18 +162,25 @@ class Quad:
 #===============================================================================
 class Edge:
     """
-    A class for an edge of a quadrilateral element
+    A class for an edge of a quadrilateral element.
 
     Attributes:
-        nodeIds: A list of the node Ids (indices) of each vertex of the
-                 edge
-        layerIdx: The level that the edge belongs to
-        type: The type id of the edge element
+        node_ids: A list of the node IDs (indices) of each vertex of the edge
+        idx: The index of the edge
+        edge_type: The type identifier of the edge element
     """
-    def __init__(self, nodeIds, idx, edgeType='UNINITIALIZED'):
-        self.nodeIds = nodeIds
+    
+    def __init__(self, node_ids: List[int], idx: int, edge_type: str = 'UNINITIALIZED') -> None:
+        """Initialize an edge element.
+        
+        Args:
+            node_ids: List of node indices forming the edge
+            idx: Edge index
+            edge_type: Type identifier for the edge
+        """
+        self.node_ids = node_ids
         self.idx = idx
-        self.edgeType = edgeType
+        self.edge_type = edge_type
 
 
 #===============================================================================
@@ -227,12 +287,10 @@ class QuadMesh:
 
         for idx, node in enumerate(self.nodes):
             if len(self.elementsAtVertex[idx]) <= 2 and self.verticesAtBoundary[idx] == 0:
-                print("Vertex index: " + str(idx) + "," + " Elements at vertex: " + 
-                    str(len(self.elementsAtVertex[idx])) + " " +  
-                    str(self.verticesAtBoundary[idx])
-                    )
-                print("An inner vertex with <= 2 incident quad elements was found. This mesh topology is invalid. Exiting") 
-                sys.exit(2)
+                print(f"Vertex index: {idx}, Elements at vertex: "
+                      f"{len(self.elementsAtVertex[idx])} {self.verticesAtBoundary[idx]}")
+                raise ValueError("An inner vertex with <= 2 incident quad elements was found. "
+                               "This mesh topology is invalid.")
 
 
 #===============================================================================
@@ -388,13 +446,13 @@ class QuadMesh:
         factor = maxArea/minArea
 
         print("=======Quad mesh element area distribution=======")
-        print("Minimum Area: " + str(minArea))
-        print("Maximum Area: " + str(maxArea))
+        print(f"Minimum Area: {minArea}")
+        print(f"Maximum Area: {maxArea}")
         if factor < 1000.0: 
-            print("Factor " + str(factor) + " < 1000.0 -> OK")
+            print(f"Factor {factor} < 1000.0 -> OK")
             return True
         else:
-            print("Factor " + str(factor) + " >= 1000.0 -> Exiting")
+            print(f"Factor {factor} >= 1000.0 -> Exiting")
             print("The input quad mesh failed the element area distribution criterion.")
             return False
             #sys.exit(2)
@@ -1241,6 +1299,7 @@ def writeSingleParFile(nodeIds, fileName, bndryType, dirName):
 #===============================================================================
 #                       Function writeParFiles
 #===============================================================================
+#=======================================================================
 def writeParFiles(hexMesh, slicesOnLevel, dirName):
     """
     Writes a list of .par files from the hexa typeIds
@@ -1251,7 +1310,7 @@ def writeParFiles(hexMesh, slicesOnLevel, dirName):
     typeIds = []
     parDict = {}
 
-    print("Number of nodes: " + str(len(hexMesh.nodes)))
+    print(f"Number of nodes: {len(hexMesh.nodes)}")
 
     for hexa in hexMesh.hexas:
         if int(hexa.type) not in typeIds:
@@ -1383,3 +1442,5 @@ def writeParFiles(hexMesh, slicesOnLevel, dirName):
         prjFile.write("mesh.tri\n")
         for name in parFileNames:
             prjFile.write(name + "\n")
+#=======================================================================
+
