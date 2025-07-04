@@ -6,7 +6,9 @@ A module for input/output of different mesh formats
 
 import re
 import os
+import sys
 import contextlib
+import numpy as np
 
 from .mesh import *
 indent_level = 0
@@ -107,31 +109,71 @@ def readMeshFromVTK(fileName):
                     line = f.readline()
 
             if re.match(r"^CELLS", line):
+                # Read the cell data and parse it flexibly
+                cells_data = []
                 line = f.readline()
-
-                idx = 0
-                while line and not re.match(r"^CELL_TYPES", line):
-                    
-                    words = line.strip().split(" ")
-                    if len(words[0]) > 0:
-                        nodeIds = []
-
-                        nodeIds.append(int(words[1]))
-                        nodeIds.append(int(words[2]))
-                        nodeIds.append(int(words[3]))
-                        nodeIds.append(int(words[4]))
-                        nodeIds.append(int(words[5]))
-                        nodeIds.append(int(words[6]))
-                        nodeIds.append(int(words[7]))
-                        nodeIds.append(int(words[8]))
-
-                        h = Hexa(nodeIds, idx)
-                        h.layerIdx = 1
-                        h.type = 1 
-                        cells.append(h)
-                        idx = idx + 1
-
+                
+                while line and not re.match(r"^CELL_TYPES", line) and not re.match(r"^CONNECTIVITY", line):
+                    words = line.strip().split()
+                    if len(words) > 0 and words[0] != '':
+                        # Try to parse as integers, skip if it fails (e.g., non-numeric headers)
+                        try:
+                            cells_data.extend([int(w) for w in words])
+                        except ValueError:
+                            # Skip lines with non-numeric data
+                            pass
                     line = f.readline()
+
+                # If we hit CONNECTIVITY section, handle it differently
+                if re.match(r"^CONNECTIVITY", line):
+                    # Skip the CONNECTIVITY header line
+                    line = f.readline()
+                    
+                    # Read all connectivity data into a single array
+                    connectivity_data = []
+                    while line and not re.match(r"^CELL_TYPES", line):
+                        words = line.strip().split()
+                        if len(words) > 0 and words[0] != '':
+                            try:
+                                connectivity_data.extend([int(w) for w in words])
+                            except ValueError:
+                                # Skip lines with non-numeric data
+                                pass
+                        line = f.readline()
+                    
+                    # Process connectivity data 8 indices at a time (one hex per 8 indices)
+                    idx = 0
+                    for i in range(0, len(connectivity_data), 8):
+                        if i + 7 < len(connectivity_data):  # Ensure we have all 8 vertices
+                            nodeIds = []
+                            for j in range(8):
+                                nodeIds.append(connectivity_data[i + j])
+                            
+                            h = Hexa(nodeIds, idx)
+                            h.layerIdx = 1
+                            h.type = 1 
+                            cells.append(h)
+                            idx += 1
+                else:
+                    # Parse cells data - each cell starts with number of vertices, followed by vertex indices
+                    idx = 0
+                    i = 0
+                    while i < len(cells_data):
+                        num_verts = cells_data[i]
+                        if num_verts == 8:  # Hexahedron
+                            nodeIds = []
+                            for j in range(1, 9):
+                                nodeIds.append(cells_data[i + j])
+                            
+                            h = Hexa(nodeIds, idx)
+                            h.layerIdx = 1
+                            h.type = 1 
+                            cells.append(h)
+                            idx += 1
+                            i += 9  # Move to next cell (8 vertices + 1 count)
+                        else:
+                            # Skip non-hexahedral cells
+                            i += num_verts + 1
 
 #            if re.match(r"^\$Elements", line):
 #                quadList = readElements(f)
