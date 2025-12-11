@@ -178,9 +178,13 @@ def convertVtk2Tri(vtkFile, triFile):
         vtkFile: The name of the input vtk file
         triFile: The name of the output tri file
     """
-    hexMesh = readMeshFromVTK(vtkFile)
-    hexMesh.generateMeshStructures()
-    writeTriFile(hexMesh, triFile)
+    try:
+        hexMesh = readMeshFromVTK(vtkFile)
+        hexMesh.generateMeshStructures()
+        writeTriFile(hexMesh, triFile)
+        print(f"Successfully converted '{vtkFile}' to '{triFile}'.")
+    except Exception as e:
+        print(f"Error converting '{vtkFile}' to '{triFile}': {e}")
 
 def handleDevisorDir(dirName):
     """

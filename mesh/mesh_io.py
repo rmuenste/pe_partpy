@@ -97,12 +97,12 @@ def readMeshFromVTK(fileName):
             if re.match(r"^POINTS", line):
                 line = f.readline()
 
-                while line and not re.match(r"^CELLS", line):
+                while line and not re.match(r"^CELLS", line) and not re.match(r"^METADATA", line):
 
-                    words = line.strip().split(" ")
-                    if len(words[0]) > 0:
+                    words = line.strip().split()
+                    if len(words) > 0:
                         if len(words) % 3 != 0:
-                            sys.exit(2)
+                            raise ValueError("Invalid VTK format: POINTS line does not have multiple of 3 coordinates")
                         for i in range(0, len(words), 3):
                             nodes.append(np.array([float(words[i]), float(words[i+1]), float(words[i+2])]))
 
