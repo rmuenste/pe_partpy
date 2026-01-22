@@ -650,6 +650,182 @@ def readMeshFile(fileName):
 
 
 #===============================================================================
+#                        Function readHexMeshFileMSH4
+#===============================================================================
+def readHexMeshFileMSH4(fileName):
+    """
+    Reader for Gmsh MSH 4.x format hex meshes
+
+    Args:
+        fileName: Path to the .msh file (version 4.x)
+
+    Returns:
+        HexMesh object containing nodes and hexahedral elements
+    """
+
+    hexList = []
+    nodesList = []
+
+    with open(fileName, "r") as f:
+        while True:
+            line = f.readline()
+
+            if not line:
+                break
+
+            # Check for Nodes section
+            if re.match(r"^\$Nodes", line):
+                nodesList = readNodesMSH4(f)
+
+            # Check for Elements section
+            if re.match(r"^\$Elements", line):
+                hexList = readHexElementsMSH4(f)
+
+    return HexMesh(hexList, nodesList)
+
+
+#===============================================================================
+#                        Function readNodesMSH4
+#===============================================================================
+def readNodesMSH4(f):
+    """
+    Reader for the $Nodes section of MSH 4.x format
+
+    MSH 4.x format structure:
+    $Nodes
+    numEntityBlocks numNodes minNodeTag maxNodeTag
+    entityDim entityTag parametric numNodesInBlock
+    nodeTag
+    x y z
+    ...
+    $EndNodes
+    """
+
+    meshNodes = []
+
+    # Read header line: numEntityBlocks numNodes minNodeTag maxNodeTag
+    line = f.readline()
+    if not line:
+        return meshNodes
+
+    words = line.strip().split()
+    numEntityBlocks = int(words[0])
+    numNodes = int(words[1])
+
+    # Create a dictionary to store nodes by their tag
+    # (tags may not be sequential in MSH 4.x)
+    nodesDict = {}
+
+    # Read each entity block
+    for _ in range(numEntityBlocks):
+        # Read entity block header
+        line = f.readline()
+        if not line or re.match(r"^\$EndNodes", line):
+            break
+
+        words = line.strip().split()
+        entityDim = int(words[0])
+        entityTag = int(words[1])
+        parametric = int(words[2])
+        numNodesInBlock = int(words[3])
+
+        # Read node tags first
+        nodeTags = []
+        for _ in range(numNodesInBlock):
+            line = f.readline()
+            nodeTags.append(int(line.strip()))
+
+        # Read node coordinates
+        for nodeTag in nodeTags:
+            line = f.readline()
+            words = line.strip().split()
+            coord = np.array([float(words[0]), float(words[1]), float(words[2])])
+            nodesDict[nodeTag] = coord
+
+    # Convert dictionary to list, sorted by tag
+    maxTag = max(nodesDict.keys())
+    meshNodes = [None] * maxTag
+
+    for tag, coord in nodesDict.items():
+        meshNodes[tag - 1] = coord  # Convert to 0-based indexing
+
+    return meshNodes
+
+
+#===============================================================================
+#                        Function readHexElementsMSH4
+#===============================================================================
+def readHexElementsMSH4(f):
+    """
+    Reader for hexahedral elements from MSH 4.x $Elements section
+
+    MSH 4.x format structure:
+    $Elements
+    numEntityBlocks numElements minElementTag maxElementTag
+    entityDim entityTag elementType numElementsInBlock
+    elementTag nodeTag1 nodeTag2 ... nodeTag8
+    ...
+    $EndElements
+
+    Element type 5 = 8-node hexahedron
+    Element type 92 = 27-node second order hexahedron
+    """
+
+    hexList = []
+
+    # Read header line
+    line = f.readline()
+    if not line:
+        return hexList
+
+    words = line.strip().split()
+    numEntityBlocks = int(words[0])
+
+    hexIdx = 0
+
+    # Read each entity block
+    for _ in range(numEntityBlocks):
+        # Read entity block header
+        line = f.readline()
+        if not line or re.match(r"^\$EndElements", line):
+            break
+
+        words = line.strip().split()
+        if len(words) != 4:
+            continue
+
+        entityDim = int(words[0])
+        entityTag = int(words[1])
+        elementType = int(words[2])
+        numElementsInBlock = int(words[3])
+
+        # Only process 3D hexahedral elements (type 5 = linear hex, type 92 = quadratic hex)
+        if entityDim == 3 and elementType in [5, 92]:
+            for _ in range(numElementsInBlock):
+                line = f.readline()
+                words = line.strip().split()
+
+                # First word is element tag, next 8 are node tags for hex8
+                # (ignore extra nodes for quadratic elements)
+                elementTag = int(words[0])
+                nodeIds = []
+                for i in range(1, 9):  # Read 8 nodes
+                    nodeIds.append(int(words[i]) - 1)  # Convert to 0-based indexing
+
+                h = Hexa(nodeIds, hexIdx)
+                h.layerIdx = 1
+                h.type = entityTag  # Store entity tag as element type
+                hexList.append(h)
+                hexIdx += 1
+        else:
+            # Skip non-hex elements (points, lines, surfaces, etc.)
+            for _ in range(numElementsInBlock):
+                f.readline()
+
+    return hexList
+
+
+#===============================================================================
 #                        Function readNodes
 #===============================================================================
 def readNodes(f):
