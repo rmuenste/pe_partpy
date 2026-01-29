@@ -8,6 +8,17 @@ Overview
 - Mesh I/O and structures: `mesh/mesh_io.py`, `mesh/mesh.py`.
 - Utilities and examples: `hex_mesh_2.py` (VTK/ParaView demo), `tri2vtk_converter.py`.
 
+Unit Cube Workflow (VTK -> TRI -> PAR case)
+- Goal: unit cube [0,1]^3 with nx=ny=nz=25, then generate .par files and a final case folder.
+- Steps (uses `pe_partpy/unit_cube_vtk.py`):
+  1) Create legacy ASCII VTK (run from repo root):
+     - `./.venv/bin/python pe_partpy/unit_cube_vtk.py --out pe_partpy/mesh/unit_cube_25.vtk --nx 25 --ny 25 --nz 25`
+  2) Convert VTK -> TRI (run from `pe_partpy/`):
+     - `../.venv/bin/python tri2vtk_converter.py mesh/unit_cube_25.vtk mesh/unit_cube_25.tri`
+  3) Generate .par files and case folder (run from repo root):
+     - `./.venv/bin/python pe_partpy/gen_par_from_tri.py pe_partpy/mesh/unit_cube_25.tri --outdir pe_partpy/mesh/unit_cube_25_case`
+- Output: `pe_partpy/mesh/unit_cube_25_case` contains `file.prj`, `unit_cube_25.tri`, and `xmin/xmax/ymin/ymax/zmin/zmax.par`.
+
 How to Run (CLI)
 - Command: `python PyPartitioner.py <n_part> <part_method> <n_sub_part> <mesh_name> <project_file>`
 - Examples (do NOT pass `-f` flag; see gotchas):
@@ -74,4 +85,3 @@ Validation Tips
 - Start with small cases and `n_part=1` (bypasses METIS) to validate I/O.
 - Use axis-based methods (`-4`) to exercise subgrid writing without METIS.
 - For plane methods, ensure plane files live next to the `.prj` and normals point in the intended half-space.
-
