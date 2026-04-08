@@ -42,7 +42,10 @@ from typing import Dict, Iterable, List, Set, Tuple
 
 import numpy as np
 
-from mesh.mesh_io import readTriFile
+try:
+    from mesh.mesh_io import readTriFile
+except ImportError:  # pragma: no cover - module import path when used as a package
+    from pe_partpy.mesh.mesh_io import readTriFile
 
 
 def _edge_key(a: int, b: int) -> Tuple[int, int]:
@@ -127,6 +130,19 @@ def _compute_outward_normals(
     return normals
 
 
+def _region_node_ids(
+    components: List[List[int]],
+    face_nodes: List[Tuple[int, int, int, int]],
+) -> List[List[int]]:
+    region_nodes: List[List[int]] = []
+    for faces in components:
+        node_ids: Set[int] = set()
+        for fidx in faces:
+            node_ids.update(face_nodes[fidx])
+        region_nodes.append(sorted(node_ids))
+    return region_nodes
+
+
 def _region_neighbors(components: List[List[int]], adjacency: List[Set[int]]) -> Dict[int, Set[int]]:
     face_to_region: Dict[int, int] = {}
     for ridx, faces in enumerate(components):
@@ -203,6 +219,39 @@ def _write_prj(path: Path, tri_name: str, par_names: List[str]) -> None:
             f.write(f"{name}\n")
 
 
+def compute_boundary_regions(
+    tri_path: Path,
+    delta: float = 30.0,
+    min_faces: int = 0,
+):
+    tri_path = tri_path.resolve()
+    hex_mesh = readTriFile(str(tri_path))
+    hex_mesh.generateMeshStructures()
+
+    if not hex_mesh.facesAtBoundary:
+        raise SystemExit("No boundary faces found in mesh")
+
+    face_nodes = [tuple(face.nodeIds) for face in hex_mesh.facesAtBoundary]
+    face_hex_indices = [face.hidx for face in hex_mesh.facesAtBoundary]
+    normals = _compute_outward_normals(hex_mesh.nodes, hex_mesh.hexas, face_nodes, face_hex_indices)
+
+    adjacency = _build_boundary_adjacency(face_nodes)
+    cos_threshold = math.cos(math.radians(delta))
+    components = _connected_components(normals, adjacency, cos_threshold)
+    components = _merge_small_regions(components, normals, adjacency, min_faces)
+    region_nodes = _region_node_ids(components, face_nodes)
+
+    return {
+        "mesh": hex_mesh,
+        "face_nodes": face_nodes,
+        "face_hex_indices": face_hex_indices,
+        "normals": normals,
+        "adjacency": adjacency,
+        "components": components,
+        "region_nodes": region_nodes,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Generate .par files by clustering boundary face normals"
@@ -249,32 +298,19 @@ def main() -> None:
     outdir = tri_path.parent / tri_path.stem if args.outdir is None else args.outdir
     outdir.mkdir(parents=True, exist_ok=True)
 
-    hex_mesh = readTriFile(str(tri_path))
-    hex_mesh.generateMeshStructures()
-
-    if not hex_mesh.facesAtBoundary:
-        raise SystemExit("No boundary faces found in mesh")
-
-    face_nodes = [tuple(face.nodeIds) for face in hex_mesh.facesAtBoundary]
-    face_hex_indices = [face.hidx for face in hex_mesh.facesAtBoundary]
-    normals = _compute_outward_normals(hex_mesh.nodes, hex_mesh.hexas, face_nodes, face_hex_indices)
-
-    adjacency = _build_boundary_adjacency(face_nodes)
-    cos_threshold = math.cos(math.radians(args.delta))
-    components = _connected_components(normals, adjacency, cos_threshold)
-    components = _merge_small_regions(components, normals, adjacency, args.min_faces)
+    region_data = compute_boundary_regions(tri_path, delta=args.delta, min_faces=args.min_faces)
+    face_nodes = region_data["face_nodes"]
+    components = region_data["components"]
+    region_nodes = region_data["region_nodes"]
 
     tri_copy_name = tri_path.name
     shutil.copyfile(tri_path, outdir / tri_copy_name)
 
     par_names: List[str] = []
-    for ridx, faces in enumerate(components, 1):
-        node_ids: Set[int] = set()
-        for fidx in faces:
-            for vid in face_nodes[fidx]:
-                node_ids.add(vid + 1)
+    for ridx, _faces in enumerate(components, 1):
+        node_ids = [vid + 1 for vid in region_nodes[ridx - 1]]
         par_name = f"region_{ridx:04d}.par"
-        _write_par_file(outdir / par_name, sorted(node_ids), args.btype, args.parameter)
+        _write_par_file(outdir / par_name, node_ids, args.btype, args.parameter)
         par_names.append(par_name)
 
     _write_prj(outdir / "file.prj", tri_copy_name, par_names)
