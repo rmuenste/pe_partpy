@@ -8,6 +8,7 @@ import os
 import sys
 import re
 import argparse
+from xml.sax.saxutils import escape
 
 from mesh import *
 
@@ -15,7 +16,8 @@ from shutil import copyfile
 
 scriptDesc='''This script can convert .tri files to .vtk files for ParaView visualization
 Examples: \n  python3 ./tri2vtk_converter.py ./meshDir/file.prj -proj ./meshDir
-  python3 ./tri2vtk_converter.py _mesh -dir'''
+  python3 ./tri2vtk_converter.py _mesh -dir
+  python3 ./tri2vtk_converter.py _mesh/MESH_NAME -dir'''
 
 def parse_par_file(file_path, base_name):
     # Initialize variables
@@ -224,16 +226,55 @@ def handleDevisorDir(dirName):
                     print("Writing %s \n" %vtkName)
                     convertTri2VtkXml(os.path.join(fileName, subItem), vtkName, parInfo)
     print(pvdList)
-    with open("pvdfile.pvd", "w") as f:
+    write_pvd_collection("pvdfile.pvd", pvdList)
+
+
+def write_pvd_collection(pvd_path, file_list):
+    with open(pvd_path, "w") as f:
         f.write("<?xml version=\"1.0\"?>\n")
         f.write("<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n")
         f.write("<Collection>\n")
 
-        for fidx, file in enumerate(pvdList):
-            f.write("<DataSet timestep=\"0\" part=\"%i\" file=\"%s\"/>\n" %(fidx, file))
+        pvd_dir = os.path.dirname(os.path.abspath(pvd_path))
+        for fidx, file in enumerate(file_list):
+            rel_file = os.path.relpath(file, pvd_dir).replace(os.sep, "/")
+            f.write("<DataSet timestep=\"0\" part=\"%i\" file=\"%s\"/>\n" %(fidx, escape(rel_file)))
 
         f.write("</Collection>\n")
         f.write("</VTKFile>\n")
+
+
+def handlePartitionDir(dirName):
+    """
+    Converts files from a modern partition output directory to vtk.
+    Parameters:
+        dirName: the path to the partition directory, e.g. _mesh/MESH_NAME
+    """
+    pvdList = []
+    subdirs = sorted(
+        item for item in os.listdir(dirName)
+        if os.path.isdir(os.path.join(dirName, item)) and re.match(r"sub\d{3,4}$", item)
+    )
+
+    if not subdirs:
+        raise ValueError(f"No sub#### directories found in '{dirName}'.")
+
+    for item in subdirs:
+        fileName = os.path.join(dirName, item)
+        print("Found subdirectory: '%s' \n" %fileName)
+        triName, parInfo = process_dev_directory(fileName)
+        subList = os.listdir(fileName)
+        for subItem in subList:
+            if re.search(r'GRID\d{3,4}\.tri$', subItem):
+                baseName = os.path.splitext(subItem)[0]
+                vtkName = os.path.join(fileName, baseName + ".vtu")
+                pvdList.append(vtkName)
+                print("Writing %s \n" %vtkName)
+                convertTri2VtkXml(os.path.join(fileName, subItem), vtkName, parInfo)
+
+    pvdPath = os.path.join(dirName, "subdomains.pvd")
+    print(pvdList)
+    write_pvd_collection(pvdPath, pvdList)
 
 def main():
     print(sys.argv)
@@ -252,7 +293,11 @@ def main():
        sys.exit(0)
 
     if args.dir and os.path.isdir(args.firstFile):
-        handleDevisorDir(args.firstFile)
+        legacyDir = os.path.join(args.firstFile, "NEWFAC")
+        if os.path.isdir(legacyDir):
+            handleDevisorDir(args.firstFile)
+        else:
+            handlePartitionDir(args.firstFile)
     elif os.path.splitext(args.firstFile)[1] == '.tri' and os.path.splitext(args.secondFile)[1] == '.vtk':
         convertTri2Vtk(args.firstFile, args.secondFile)
     elif os.path.splitext(args.firstFile)[1] == '.vtk' and os.path.splitext(args.secondFile)[1] == '.tri':

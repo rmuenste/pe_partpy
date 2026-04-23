@@ -78,6 +78,40 @@ def _try_in_place_first(name):
 
 
 #=======================================================================
+def ensure_metis_loaded():
+    """Load the METIS shared library on demand."""
+    global metis
+    global metis_func
+
+    if metis is not None:
+        return
+
+    if os.name == "posix":
+        metis = _try_in_place_first("libmetis.so")
+    elif os.name == "nt":
+        metis = _try_in_place_first("metis.dll")
+    else:
+        sys.exit("Loading of Metis not yet implemented for platform '%s'!" % os.name)
+
+    if metis is None:
+        sys.exit("Could not load the Metis library!")
+
+    # Add call parameters for the three Metis functions used
+    _pidx = POINTER(c_int)
+    _pint = POINTER(c_int)
+    _PartArgs = (_pint, _pidx, _pidx, _pidx, _pidx, _pint, _pint, _pint, _pint, _pint, _pidx)
+    metis.METIS_PartGraphRecursive.argtypes = _PartArgs
+    metis.METIS_PartGraphVKway.argtypes = _PartArgs
+    metis.METIS_PartGraphKway.argtypes = _PartArgs
+    metis_func = (
+        metis.METIS_PartGraphRecursive,
+        metis.METIS_PartGraphVKway,
+        metis.METIS_PartGraphKway,
+    )
+#=======================================================================
+
+
+#=======================================================================
 # From here on, the public functions of the module
 def get_file_list(project_name: str) -> Tuple[int, str, List[str], List[str]]:
     """Read the project file and extract grid and parameter file information.
@@ -225,6 +259,8 @@ def GetAtomicSplitting(Num):
 
 #=======================================================================
 def GetParts(Neigh, nPart, Method):
+    ensure_metis_loaded()
+
     # If nPart == 1, create a dummy partitioning directly
     if nPart == 1:
         return (1,) * len(Neigh)
@@ -552,7 +588,9 @@ def AxisBasedPartitioning(grid, n_sub_mesh, method):
         num_partitions = n_sub_mesh[axis_index]
 
         # Calculate partition boundaries
-        delta = (max_coord - min_coord) / num_partitions
+        axis_span = max_coord - min_coord
+        delta = axis_span / num_partitions
+        tolerance = max(1e-12, 1e-9 * axis_span)
         partition_boundaries = [min_coord + i * delta for i in range(1, num_partitions + 1)]
 
         print(f"Axis: {axis_names[axis_index]}, Min: {min_coord}, Max: {max_coord}, Delta: {delta}")
@@ -562,7 +600,52 @@ def AxisBasedPartitioning(grid, n_sub_mesh, method):
         for element_index, element_nodes in enumerate(element_vertices):
             for partition_idx, boundary in enumerate(partition_boundaries):
                 # Check if all vertices of the element are within the current partition
-                if all(coordinates[vertex_index - 1][axis_index] <= boundary + 1e-5 for vertex_index in element_nodes):
+                if all(
+                    coordinates[vertex_index - 1][axis_index] <= boundary + tolerance
+                    for vertex_index in element_nodes
+                ):
+                    element_partitions[element_index][axis_order] = partition_idx + 1
+                    break
+
+    return tuple(element_partitions)
+#=======================================================================
+
+
+#=======================================================================
+def axis_cuts_partitioning(grid, axis_cut_spec):
+    (num_elements, num_vertices, coordinates, element_vertices, knpr) = grid
+    element_partitions = [[0, 0, 0] for _ in range(num_elements)]
+
+    for axis_order, axis_index in enumerate(reversed((0, 1, 2))):
+        coords_along_axis = [coord[axis_index] for coord in coordinates]
+        min_coord = min(coords_along_axis)
+        max_coord = max(coords_along_axis)
+        axis_span = max_coord - min_coord
+        tolerance = max(1e-12, 1e-9 * axis_span)
+
+        cuts = axis_cut_spec.cuts[axis_index]
+        if axis_cut_spec.absolute_axes[axis_index]:
+            boundaries = list(cuts)
+            for cut in cuts:
+                assert min_coord < cut < max_coord, (
+                    f"Absolute cuts on axis {axis_index} must lie strictly inside "
+                    f"the mesh bounds ({min_coord}, {max_coord})."
+                )
+        else:
+            boundaries = [min_coord + cut * (max_coord - min_coord) for cut in cuts]
+
+        boundaries.append(max_coord)
+        print(
+            f"Axis cuts: axis={('x', 'y', 'z')[axis_index]}, min={min_coord}, "
+            f"max={max_coord}, boundaries={boundaries}"
+        )
+
+        for element_index, element_nodes in enumerate(element_vertices):
+            for partition_idx, boundary in enumerate(boundaries):
+                if all(
+                    coordinates[vertex_index - 1][axis_index] <= boundary + tolerance
+                    for vertex_index in element_nodes
+                ):
                     element_partitions[element_index][axis_order] = partition_idx + 1
                     break
 
@@ -851,26 +934,7 @@ __doc__ = \
 This module performs the partitioning of a grid using the Metis library.
 """
 
-# Start routine of the module, which loads Metis.
-if os.name == "posix":
-  metis = _try_in_place_first("libmetis.so")
-elif os.name == "nt":
-  metis = _try_in_place_first("metis.dll")
-else:
-  sys.exit("Loading of Metis not yet implemented for platform '%s'!" % os.name)
-
-if metis is None:
-  sys.exit("Could not load the Metis library!")
-
-# Add call parameters for the three Metis functions used
-_pidx = POINTER(c_int)
-_pint = POINTER(c_int)
-_PartArgs = (_pint, _pidx, _pidx, _pidx, _pidx, _pint, _pint, _pint, _pint, _pint, _pidx)
-metis.METIS_PartGraphRecursive.argtypes = _PartArgs
-metis.METIS_PartGraphVKway.argtypes = _PartArgs
-metis.METIS_PartGraphKway.argtypes = _PartArgs
-metis_func = (metis.METIS_PartGraphRecursive, metis.METIS_PartGraphVKway, metis.METIS_PartGraphKway)
-
 if __name__ == "__main__":
+  ensure_metis_loaded()
   if metis is not None:
     print("Metis has been loaded.")
