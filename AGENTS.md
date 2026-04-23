@@ -19,6 +19,23 @@ Unit Cube Workflow (VTK -> TRI -> PAR case)
      - `./.venv/bin/python pe_partpy/gen_par_from_tri.py pe_partpy/mesh/unit_cube_25.tri --outdir pe_partpy/mesh/unit_cube_25_case`
 - Output: `pe_partpy/mesh/unit_cube_25_case` contains `file.prj`, `unit_cube_25.tri`, and `xmin/xmax/ymin/ymax/zmin/zmax.par`.
 
+ParaView VTU Workflow (`.prj` case folder -> `.vtu`)
+- Use this whenever a user wants a ParaView-ready file from a mesh project folder containing `file.prj`, one `.tri`, and boundary `.par` files.
+- Do not use this for raw Gmsh `.msh` input. For `.msh` input, use `workflow/converters/msh_to_vtk.py` first.
+- Preferred command from repo root:
+  - `python3 pe_partpy/tri2vtk_converter.py pe_partpy/3D_FAC_FBM/file.prj -proj pe_partpy/3D_FAC_FBM`
+- General form:
+  - `python3 pe_partpy/tri2vtk_converter.py <case_dir>/file.prj -proj <case_dir>`
+- Output:
+  - `<case_dir>/main.vtu`
+- Behavior:
+  - Reads the `.tri` referenced by the project folder.
+  - Reads the `.par` files listed by the `.prj`.
+  - Writes a ParaView-compatible XML unstructured grid with point-data arrays for each boundary file.
+- Example:
+  - `python3 pe_partpy/tri2vtk_converter.py pe_partpy/3D_FAC_FBM/file.prj -proj pe_partpy/3D_FAC_FBM`
+  - Produces `pe_partpy/3D_FAC_FBM/main.vtu`
+
 How to Run (CLI)
 - Command: `python PyPartitioner.py <n_part> <part_method> <n_sub_part> <mesh_name> <project_file>`
 - Examples (do NOT pass `-f` flag; see gotchas):
@@ -80,6 +97,8 @@ Common Tasks
 - Add a new partitioning strategy: implement in `partitioner/part.py` (keep tuple-of-tuples structures), wire into `part_main.main_process` switch on `orig_method`.
 - Change subdir numbering: extend `get_formatted_value` mapping; ensure the CLI passes desired `-f/--format` (but remember the gotcha: do not pass `-f` to the raw argv path).
 - Debug METIS calls: verify adjacency arrays `MetisA/MetisB` and one-based indexing, and ensure `libmetis.so` resolves from the current CWD.
+- Generate a ParaView `.vtu` from a case folder: use `tri2vtk_converter.py` with `-proj <case_dir>` and expect `main.vtu` in that folder.
+- Convert a raw Gmsh `.msh` mesh for ParaView or CFD: use `workflow/converters/msh_to_vtk.py` and expect `.vtk` plus `.tri`.
 
 Validation Tips
 - Start with small cases and `n_part=1` (bypasses METIS) to validate I/O.
